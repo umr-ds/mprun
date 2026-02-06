@@ -1,0 +1,25 @@
+stages:
+  - lint
+  - unit_test
+pre-commit:
+  stage: lint
+  image: python:3.14
+  script:
+    - pip install --upgrade pip
+    - pip install --group devel .
+    - pip install --group lint .
+    - pre-commit run --all-files
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+pytest:
+  stage: unit_test
+  image: python:3.14
+  script:
+    - pip install --upgrade pip
+    - pip install --group devel .
+    - pip install --group test .
+    - pytest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"

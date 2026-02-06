@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mprun"
+version = "0.0.1"
+description = "Multi-Parameter Task Runner"
+readme = "Readme.md"
+requires-python = ">= 3.12"
+
+authors = [
+  {name = "Markus Sommer", email = "msommer@informatik.uni-marburg.de"}
+]
+maintainers = [
+  {name = "Markus Sommer", email = "msommer@informatik.uni-marburg.de"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+]
+
+dependencies = []
+
+[dependency-groups]
+devel = [
+    "pre-commit",
+    "hatchling",
+]
+lint = [
+    "ruff",
+    "ty",
+]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "hypothesis",
+]
+
+[project.urls]
+Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
