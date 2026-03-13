@@ -1,0 +1,147 @@
+"""Module contains Job class and all other associated types."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import IntEnum
+from itertools import product
+from typing import Any
+from uuid import UUID, uuid4, uuid5
+
+
+@dataclass
+class InvalidParametersError(Exception):
+    """Exception for when the user submits an invalid parameter set.
+
+    Attributes:
+        reason (str): The exact reason why the parameters were invalid.
+    """
+
+    reason: str
+
+
+def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
+    """Expand parameter set by creating coss-product of all parameters.
+
+    Args:
+        params (dict[str, list[Any]]): Dictionary of Lists of parameters
+
+    Returns:
+        list[dict[str, Any]]: List of Dicts of single parameter set, each containing one value from the provided lists.
+                              All possible permutations.
+    """
+    if not params:
+        raise InvalidParametersError(reason="Empty parameters not allowed")
+
+    for key, values in params.items():
+        if not key:
+            raise InvalidParametersError(
+                reason="Parameter keys must not be empty string"
+            )
+        if not values:
+            raise InvalidParametersError(reason="Parameter lists must not be empty")
+
+    expanded: list[dict[str, Any]] = []
+
+    keys = list(params.keys())
+    for values in product(*params.values()):
+        expanded.append(dict(zip(keys, values, strict=True)))
+
+    return expanded
+
+
+class State(IntEnum):
+    """Possible states for both Jobs and Runs.
+
+    Meaning for Run:
+        WAITING: Run has nod been dispatched
+        RUNNING: Run has been dispatched, has not finished
+        FINISHED: Run has finished without error
+        FAILED: Run has finished with an error
+
+    Meaning for Job:
+        WAITING: All runs are waiting
+        RUNNING: At least one run is running
+        FINISHED: All runs have finished without error
+        FAILED: At least one run has finished with an error
+    """
+
+    WAITING = 1
+    RUNNING = 2
+    FINISHED = 3
+    FAILED = 4
+
+
+class Job:
+    """Parametrised job.
+
+    The JOo acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
+
+    Attributes:
+        jid (UUID): Unique identifier of this job. Generated automatically from uuid.uuid4.
+        name (str): Human readable job name. Does not have to be unique.
+        state (State): Job's state. See docstring of State enum for behaviour documentation.
+        params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
+                                       Will be used to generate runs by computing cross product of parameter lists.
+        runs (list[Run]): List of runs that were generated from parameters.
+
+    """
+
+    jid: UUID
+    name: str
+    state: State
+    params: dict[str, list[Any]]
+    runs: list[Run]
+
+    def __init__(self, name: str, params: dict[str, list[Any]]) -> None:
+        """Init Job.
+
+        Args:
+            name (str): Human readable job name. Does not have to be unique.
+            params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
+                                           Will be used to generate runs by computing cross product of parameter lists.
+        """
+        self.name = name
+        self.jid = uuid4()
+        self.state = State.WAITING
+        self.params = params
+        self.runs = []
+
+        expanded = _expand_parameters(params)
+        for index, param_set in enumerate(expanded):
+            self.runs.append(
+                Run(
+                    jid=self.jid,
+                    rid=uuid5(namespace=self.jid, name=bytes(index)),
+                    index=index,
+                    name=f"{self.name}-{index}",
+                    state=State.WAITING,
+                    params=param_set,
+                ),
+            )
+
+    def __str__(self) -> str:
+        """Return a string representation of the Job."""
+        return f"Job({self.name})"
+
+
+@dataclass
+class Run:
+    """A single run of a Job.
+
+    Attributes:
+        jid (UUID): Job ID of the parent Job.
+        index (int): Run's index amongst its brethren.
+        rid (UUID): Unique identifier for this Run.
+                    Generated with uuid.uuid5, using parent's job ID as namespace and index as name.
+        name (str): Human-readable name. Generated using {job_name}-{index}.
+        state (State): Run's state. See docstring of State enum for behaviour documentation.
+        params (dict[str, Any]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
+    """
+
+    jid: UUID
+    index: int
+    rid: UUID
+    name: str
+    state: State
+    params: dict[str, Any]
