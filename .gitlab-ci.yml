@@ -8,6 +8,7 @@ pre-commit:
     - pip install --upgrade pip
     - pip install --group devel .
     - pip install --group lint .
+    - pip install --group test .
     - pre-commit run --all-files
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
