@@ -1,0 +1,1 @@
+"""Module contains client application."""
