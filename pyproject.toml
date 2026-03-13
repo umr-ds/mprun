@@ -35,12 +35,8 @@ dependencies = []
 devel = [
     "pre-commit",
     "hatchling",
-]
-lint = [
     "ruff",
     "ty",
-]
-test = [
     "pytest",
     "pytest-asyncio",
     "hypothesis",
