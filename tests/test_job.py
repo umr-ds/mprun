@@ -17,7 +17,7 @@ def test__job_creation() -> None:
         "param_3": [True, False],
     }
 
-    job = Job(name="testjob", params=example_params)
+    job = Job.new(name="testjob", params=example_params)
 
     assert len(job.runs) == 16
 
@@ -35,6 +35,6 @@ def test__job_creation_properties(name: str, params: dict[str, list[Any]]) -> No
     """Test Job creation with randomised data."""
     total_runs = prod([len(par) for par in params.values()])
 
-    job = Job(name=name, params=params)
+    job = Job.new(name=name, params=params)
 
     assert len(job.runs) == total_runs

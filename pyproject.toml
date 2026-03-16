@@ -29,7 +29,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 
-dependencies = []
+dependencies = ["pydantic"]
 
 [dependency-groups]
 devel = [

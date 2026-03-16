@@ -8,6 +8,8 @@ from itertools import product
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
+from pydantic import BaseModel
+
 
 @dataclass
 class InvalidParametersError(Exception):
@@ -72,10 +74,10 @@ class State(IntEnum):
     FAILED = 4
 
 
-class Job:
+class Job(BaseModel):
     """Parametrised job.
 
-    The JOo acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
+    The Job acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
 
     Attributes:
         jid (UUID): Unique identifier of this job. Generated automatically from uuid.uuid4.
@@ -84,7 +86,6 @@ class Job:
         params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
                                        Will be used to generate runs by computing cross product of parameter lists.
         runs (list[Run]): List of runs that were generated from parameters.
-
     """
 
     jid: UUID
@@ -93,40 +94,41 @@ class Job:
     params: dict[str, list[Any]]
     runs: list[Run]
 
-    def __init__(self, name: str, params: dict[str, list[Any]]) -> None:
-        """Init Job.
+    def __str__(self) -> str:
+        """Return a string representation of the Job."""
+        return f"Job({self.name})"
+
+    @classmethod
+    def new(cls, name: str, params: dict[str, list[Any]]) -> Job:
+        """Create a new Job from a name and parameter set.
 
         Args:
             name (str): Human readable job name. Does not have to be unique.
             params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
                                            Will be used to generate runs by computing cross product of parameter lists.
-        """
-        self.name = name
-        self.jid = uuid4()
-        self.state = State.WAITING
-        self.params = params
-        self.runs = []
 
+        Other class attributes will be generated automatically.
+        """
+        jid = uuid4()
+        state = State.WAITING
+        runs: list[Run] = []
         expanded = _expand_parameters(params)
         for index, param_set in enumerate(expanded):
-            self.runs.append(
+            runs.append(
                 Run(
-                    jid=self.jid,
-                    rid=uuid5(namespace=self.jid, name=bytes(index)),
+                    jid=jid,
+                    rid=uuid5(namespace=jid, name=bytes(index)),
                     index=index,
-                    name=f"{self.name}-{index}",
+                    name=f"{name}-{index}",
                     state=State.WAITING,
                     params=param_set,
                 ),
             )
 
-    def __str__(self) -> str:
-        """Return a string representation of the Job."""
-        return f"Job({self.name})"
+        return Job(jid=jid, name=name, state=state, params=params, runs=runs)
 
 
-@dataclass
-class Run:
+class Run(BaseModel):
     """A single run of a Job.
 
     Attributes:
