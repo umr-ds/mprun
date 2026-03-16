@@ -13,13 +13,17 @@ from pydantic import BaseModel
 
 @dataclass
 class InvalidParametersError(Exception):
-    """Exception for when the user submits an invalid parameter set.
+    """Raised when the user submits an invalid parameter set.
 
     Attributes:
         reason (str): The exact reason why the parameters were invalid.
     """
 
     reason: str
+
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Job Parameters invalid! Reason: {self.reason}"
 
 
 def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
@@ -74,6 +78,19 @@ class State(IntEnum):
     FAILED = 4
 
 
+class JobCreateRequest(BaseModel):
+    """Minimal info to create a new Job.
+
+    Args:
+        name (str): Human readable job name. Does not have to be unique.
+        params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
+                                       Will be used to generate runs by computing cross product of parameter lists.
+    """
+
+    name: str
+    params: dict[str, list[Any]]
+
+
 class Job(BaseModel):
     """Parametrised job.
 
@@ -95,8 +112,18 @@ class Job(BaseModel):
     runs: list[Run]
 
     def __str__(self) -> str:
-        """Return a string representation of the Job."""
+        """Job's string representation."""
         return f"Job({self.name})"
+
+    def __hash__(self) -> int:
+        """Compute hash of Job."""
+        return hash(self.jid)
+
+    def __eq__(self, other: object) -> bool:
+        """Check if Jobs are equal."""
+        if isinstance(other, Job):
+            return self.jid == other.jid
+        return False
 
     @classmethod
     def new(cls, name: str, params: dict[str, list[Any]]) -> Job:
@@ -127,6 +154,15 @@ class Job(BaseModel):
 
         return Job(jid=jid, name=name, state=state, params=params, runs=runs)
 
+    @classmethod
+    def new_from_request(cls, request: JobCreateRequest) -> Job:
+        """Create new Job from a request.
+
+        Args:
+            request (JobCreateRequest): Request with necessary info.
+        """
+        return cls.new(name=request.name, params=request.params)
+
 
 class Run(BaseModel):
     """A single run of a Job.
@@ -147,3 +183,17 @@ class Run(BaseModel):
     name: str
     state: State
     params: dict[str, Any]
+
+    def __str__(self) -> str:
+        """Return a string representation of the Job."""
+        return f"Run({self.name})"
+
+    def __hash__(self) -> int:
+        """Compute hash of Run."""
+        return hash(self.rid)
+
+    def __eq__(self, other: object) -> bool:
+        """Check if Runs are equal."""
+        if isinstance(other, Run):
+            return self.rid == other.rid
+        return False
