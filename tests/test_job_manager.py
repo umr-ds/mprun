@@ -1,5 +1,7 @@
 """Tests for job_manager module."""
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from hypothesis import given
@@ -19,8 +21,10 @@ from mprun.job_manager import JobManager
 )
 def test__create_randomised(name: str, params: dict[str, list[Any]]) -> None:
     """Test Job creation with randomised data."""
-    manager = JobManager()
-    job = manager.create_job(name=name, params=params)
+    with TemporaryDirectory(delete=True) as data_dir:
+        data_path = Path(data_dir)
+        manager = JobManager(data_path=data_path)
+        job = manager.create_job(name=name, params=params)
 
-    retrieved = manager.get_job(jid=job.jid)
-    assert job == retrieved
+        retrieved = manager.get_job(jid=job.jid)
+        assert job == retrieved

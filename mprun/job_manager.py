@@ -1,8 +1,11 @@
 """Module contains tool to manage Jobs."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from uuid import UUID
+
+from tinydb import Query, TinyDB
+from tinydb.table import Table
 
 from mprun.job import Job, JobCreateRequest
 
@@ -12,29 +15,48 @@ class NoSuchJobError(Exception):
     """Raised when trying to retrieve a Job that does not exist.
 
     Attributes:
-        jid (UUID): Non-existent Job's ID.
+        jid (int): Non-existent Job's ID.
     """
 
-    jid: UUID
+    jid: int
 
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Job with ID {self.jid} does not exist!"
 
 
-@dataclass
 class JobManager:
     """Manages (creates, deletes, dispatches, etc) Jobs.
 
     Attributes:
-        jobs (list[Job]):
+        data_path (Path): Base-path for the data directory. Will be used to store database & job data.
     """
 
-    jobs: list[Job] = field(default_factory=list)
+    data_path: Path
+    _db: TinyDB
+
+    def __init__(self, data_path: Path) -> None:
+        """Initialise JobManager.
+
+        Args:
+            data_path (Path): Base-path for the data directory. Will be used to store database & job data.
+        """
+        data_path.mkdir(parents=True, exist_ok=True)
+        self.data_path = data_path
+        self._db = TinyDB(data_path / "db.json")
+
+    @property
+    def _jobs_table(self) -> Table:
+        return self._db.table("jobs")
+
+    def close(self) -> None:
+        """Close database & shut down."""
+        self._db.close()
 
     def all_jobs(self) -> list[Job]:
         """Get list of all existing Jobs."""
-        return self.jobs
+        docs = self._jobs_table.all()
+        return [Job.model_validate(doc) for doc in docs]
 
     def create_job(self, name: str, params: dict[str, list[Any]]) -> Job:
         """Create a new Job.
@@ -48,7 +70,7 @@ class JobManager:
             Job: Newly created Job.
         """
         job = Job.new(name=name, params=params)
-        self.jobs.append(job)
+        self._jobs_table.insert(job.model_dump())
         return job
 
     def create_job_from_request(self, request: JobCreateRequest) -> Job:
@@ -61,14 +83,14 @@ class JobManager:
             Job: Newly created Job.
         """
         job = Job.new_from_request(request=request)
-        self.jobs.append(job)
+        self._jobs_table.insert(job.model_dump())
         return job
 
-    def get_job(self, jid: UUID) -> Job:
+    def get_job(self, jid: int) -> Job:
         """Get a Job by its ID.
 
         Args:
-            jid (UUID): Job ID to look for.
+            jid (int): Job ID to look for.
 
         Returns:
             Job: Job with matching ID (if found).
@@ -76,7 +98,8 @@ class JobManager:
         Raises:
             NoSuchJobError: If there is no Job with a matching ID.
         """
-        for job in self.jobs:
-            if job.jid == jid:
-                return job
-        raise NoSuchJobError(jid=jid)
+        q = Query()
+        doc = self._jobs_table.get(q.jid == jid)
+        if not doc:
+            raise NoSuchJobError(jid=jid)
+        return Job.model_validate(doc)

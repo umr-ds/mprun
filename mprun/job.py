@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from itertools import product
 from typing import Any
-from uuid import UUID, uuid4, uuid5
+from uuid import uuid4, uuid5
 
 from pydantic import BaseModel
 
@@ -97,7 +97,8 @@ class Job(BaseModel):
     The Job acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
 
     Attributes:
-        jid (UUID): Unique identifier of this job. Generated automatically from uuid.uuid4.
+        jid (int): Unique identifier of this job. Generated automatically from uuid.uuid4.
+                   (Integer representation of a UUID for serialisability)
         name (str): Human readable job name. Does not have to be unique.
         state (State): Job's state. See docstring of State enum for behaviour documentation.
         params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
@@ -105,7 +106,7 @@ class Job(BaseModel):
         runs (list[Run]): List of runs that were generated from parameters.
     """
 
-    jid: UUID
+    jid: int
     name: str
     state: State
     params: dict[str, list[Any]]
@@ -143,8 +144,8 @@ class Job(BaseModel):
         for index, param_set in enumerate(expanded):
             runs.append(
                 Run(
-                    jid=jid,
-                    rid=uuid5(namespace=jid, name=bytes(index)),
+                    jid=jid.int,
+                    rid=uuid5(namespace=jid, name=bytes(index)).int,
                     index=index,
                     name=f"{name}-{index}",
                     state=State.WAITING,
@@ -152,7 +153,7 @@ class Job(BaseModel):
                 ),
             )
 
-        return Job(jid=jid, name=name, state=state, params=params, runs=runs)
+        return Job(jid=jid.int, name=name, state=state, params=params, runs=runs)
 
     @classmethod
     def new_from_request(cls, request: JobCreateRequest) -> Job:
@@ -168,18 +169,18 @@ class Run(BaseModel):
     """A single run of a Job.
 
     Attributes:
-        jid (UUID): Job ID of the parent Job.
+        jid (int): Job ID of the parent Job. (Integer representation of a UUID for serialisability)
         index (int): Run's index amongst its brethren.
-        rid (UUID): Unique identifier for this Run.
+        rid (int): Unique identifier for this Run. (Integer representation of a UUID for serialisability)
                     Generated with uuid.uuid5, using parent's job ID as namespace and index as name.
         name (str): Human-readable name. Generated using {job_name}-{index}.
         state (State): Run's state. See docstring of State enum for behaviour documentation.
         params (dict[str, Any]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
     """
 
-    jid: UUID
+    jid: int
     index: int
-    rid: UUID
+    rid: int
     name: str
     state: State
     params: dict[str, Any]

@@ -29,7 +29,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 
-dependencies = ["pydantic", "fastapi"]
+dependencies = ["pydantic", "fastapi", "tinydb"]
 
 [dependency-groups]
 devel = [
