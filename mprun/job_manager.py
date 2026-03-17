@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from tinydb import Query, TinyDB
 from tinydb.table import Table
@@ -58,23 +57,8 @@ class JobManager:
         docs = self._jobs_table.all()
         return [Job.model_validate(doc) for doc in docs]
 
-    def create_job(self, name: str, params: dict[str, list[Any]]) -> Job:
+    def create_job(self, request: JobCreateRequest) -> Job:
         """Create a new Job.
-
-        Args:
-            name (str): Human readable job name. Does not have to be unique.
-            params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
-                                           Will be used to generate runs by computing cross product of parameter lists.
-
-        Returns:
-            Job: Newly created Job.
-        """
-        job = Job.new(name=name, params=params)
-        self._jobs_table.insert(job.model_dump())
-        return job
-
-    def create_job_from_request(self, request: JobCreateRequest) -> Job:
-        """Create a new Job from a request.
 
         Args:
             request (JobCreateRequest): Request with info for job creation.

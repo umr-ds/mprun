@@ -44,7 +44,7 @@ def create_job(
 ) -> Job:
     """Create a new job from JobCreateRequest and return it."""
     try:
-        job = jm.create_job_from_request(request)
+        job = jm.create_job(request)
     except InvalidParametersError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return job
