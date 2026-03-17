@@ -29,9 +29,11 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 
-dependencies = ["pydantic", "fastapi", "tinydb"]
+dependencies = ["pydantic"]
 
 [dependency-groups]
+server = ["uvicorn", "fastapi", "tinydb"]
+client = ["typer", "httpx"]
 devel = [
     "pre-commit",
     "hatchling",
@@ -40,8 +42,8 @@ devel = [
     "pytest",
     "pytest-asyncio",
     "hypothesis",
+    "openapi-python-client",
 ]
-serve = ["uvicorn"]
 
 [project.urls]
 Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
