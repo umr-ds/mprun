@@ -6,7 +6,7 @@ from pathlib import Path
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from mprun.job import Job, JobCreateRequest
+from mprun.job import Job, JobDefinition
 
 
 @dataclass
@@ -57,16 +57,16 @@ class JobManager:
         docs = self._jobs_table.all()
         return [Job.model_validate(doc) for doc in docs]
 
-    def create_job(self, request: JobCreateRequest) -> Job:
+    def create_job(self, definition: JobDefinition) -> Job:
         """Create a new Job.
 
         Args:
-            request (JobCreateRequest): Request with info for job creation.
+            definition (JobDefinition): Definition for new job.
 
         Returns:
             Job: Newly created Job.
         """
-        job = Job.new_from_request(request=request)
+        job = Job.new(definition=definition)
         self._jobs_table.insert(job.model_dump())
         return job
 

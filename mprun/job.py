@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import StrEnum
 from itertools import product
 from typing import Any
 from uuid import uuid4, uuid5
@@ -56,7 +56,7 @@ def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
     return expanded
 
 
-class State(IntEnum):
+class State(StrEnum):
     """Possible states for both Jobs and Runs.
 
     Meaning for Run:
@@ -72,13 +72,13 @@ class State(IntEnum):
         FAILED: At least one run has finished with an error
     """
 
-    WAITING = 1
-    RUNNING = 2
-    FINISHED = 3
-    FAILED = 4
+    WAITING = "WAITING"
+    RUNNING = "RUNNING"
+    FINISHED = "FINISHED"
+    FAILED = "FAILED"
 
 
-class JobCreateRequest(BaseModel):
+class JobDefinition(BaseModel):
     """Minimal info to create a new Job.
 
     Args:
@@ -127,42 +127,35 @@ class Job(BaseModel):
         return False
 
     @classmethod
-    def new(cls, name: str, params: dict[str, list[Any]]) -> Job:
-        """Create a new Job from a name and parameter set.
+    def new(cls, definition: JobDefinition) -> Job:
+        """Create new Job from a JobDefinition.
 
         Args:
-            name (str): Human readable job name. Does not have to be unique.
-            params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
-                                           Will be used to generate runs by computing cross product of parameter lists.
-
-        Other class attributes will be generated automatically.
+            definition (JobDefinition): Definition of new Job
         """
         jid = uuid4()
         state = State.WAITING
         runs: list[Run] = []
-        expanded = _expand_parameters(params)
+        expanded = _expand_parameters(definition.params)
         for index, param_set in enumerate(expanded):
             runs.append(
                 Run(
                     jid=jid.int,
                     rid=uuid5(namespace=jid, name=bytes(index)).int,
                     index=index,
-                    name=f"{name}-{index}",
+                    name=f"{definition.name}-{index}",
                     state=State.WAITING,
                     params=param_set,
                 ),
             )
 
-        return Job(jid=jid.int, name=name, state=state, params=params, runs=runs)
-
-    @classmethod
-    def new_from_request(cls, request: JobCreateRequest) -> Job:
-        """Create new Job from a request.
-
-        Args:
-            request (JobCreateRequest): Request with necessary info.
-        """
-        return cls.new(name=request.name, params=request.params)
+        return Job(
+            jid=jid.int,
+            name=definition.name,
+            state=state,
+            params=definition.params,
+            runs=runs,
+        )
 
 
 class Run(BaseModel):

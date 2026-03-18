@@ -33,7 +33,7 @@ dependencies = ["pydantic"]
 
 [dependency-groups]
 server = ["uvicorn", "fastapi", "tinydb"]
-client = ["typer", "httpx"]
+client = ["typer", "httpx", "tomlkit"]
 devel = [
     "pre-commit",
     "hatchling",
@@ -47,6 +47,9 @@ devel = [
 
 [project.urls]
 Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
+
+[project.scripts]
+mprun_client = "mprun.client:app"
 
 [tool.ruff]
 exclude = [
@@ -129,6 +132,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S", "PLR2004"]
+"mprun/client.py" = ["FBT"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

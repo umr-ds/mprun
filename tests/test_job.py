@@ -6,7 +6,7 @@ from typing import Any
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.job import Job
+from mprun.job import Job, JobDefinition
 
 
 def test__job_creation() -> None:
@@ -17,7 +17,8 @@ def test__job_creation() -> None:
         "param_3": [True, False],
     }
 
-    job = Job.new(name="testjob", params=example_params)
+    definition = JobDefinition(name="testjob", params=example_params)
+    job = Job.new(definition)
 
     assert len(job.runs) == 16
 
@@ -35,6 +36,7 @@ def test__job_creation_properties(name: str, params: dict[str, list[Any]]) -> No
     """Test Job creation with randomised data."""
     total_runs = prod([len(par) for par in params.values()])
 
-    job = Job.new(name=name, params=params)
+    definition = JobDefinition(name=name, params=params)
+    job = Job.new(definition)
 
     assert len(job.runs) == total_runs

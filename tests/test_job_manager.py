@@ -7,7 +7,7 @@ from typing import Any
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.job import JobCreateRequest
+from mprun.job import JobDefinition
 from mprun.job_manager import JobManager
 
 
@@ -26,9 +26,9 @@ def test__create_randomised(name: str, params: dict[str, list[Any]]) -> None:
         data_path = Path(data_dir)
         manager = JobManager(data_path=data_path)
 
-        request = JobCreateRequest(name=name, params=params)
+        definition = JobDefinition(name=name, params=params)
 
-        job = manager.create_job(request=request)
+        job = manager.create_job(definition=definition)
 
         retrieved = manager.get_job(jid=job.jid)
         assert job == retrieved
