@@ -11,7 +11,7 @@ from rich.table import Table
 from tomlkit import load
 from typer import Argument, Exit, Option, Typer, echo
 
-from mprun.job import Job, JobDefinition
+from mprun.models import Job, JobDefinition
 
 console = Console()
 app = Typer()

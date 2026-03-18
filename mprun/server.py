@@ -8,8 +8,8 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
-from mprun.job import InvalidParametersError, Job, JobDefinition
 from mprun.job_manager import JobManager, NoSuchJobError
+from mprun.models import InvalidParametersError, Job, JobDefinition
 
 logger = logging.getLogger(__name__)
 DATA_PATH_ENV = "MPRUN_DATA_PATH"

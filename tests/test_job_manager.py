@@ -7,8 +7,8 @@ from typing import Any
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.job import JobDefinition
 from mprun.job_manager import JobManager
+from mprun.models import JobDefinition
 
 
 @given(

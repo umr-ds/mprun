@@ -1,4 +1,4 @@
-"""Module contains Job class and all other associated types."""
+"""Module contains Pydantic models."""
 
 from __future__ import annotations
 

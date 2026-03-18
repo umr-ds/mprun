@@ -6,7 +6,7 @@ from typing import Any
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.job import Job, JobDefinition
+from mprun.models import Job, JobDefinition
 
 
 def test__job_creation() -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from mprun.job import Job, JobDefinition
+from mprun.models import Job, JobDefinition
 
 
 @dataclass
