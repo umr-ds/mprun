@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import StrEnum
 from itertools import product
 from typing import Any
@@ -10,20 +9,7 @@ from uuid import uuid4, uuid5
 
 from pydantic import BaseModel
 
-
-@dataclass
-class InvalidParametersError(Exception):
-    """Raised when the user submits an invalid parameter set.
-
-    Attributes:
-        reason (str): The exact reason why the parameters were invalid.
-    """
-
-    reason: str
-
-    def __str__(self) -> str:
-        """Error's string representation."""
-        return f"Job Parameters invalid! Reason: {self.reason}"
+from mprun.errors import InvalidParametersError
 
 
 def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:

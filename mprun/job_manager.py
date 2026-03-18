@@ -1,27 +1,12 @@
 """Module contains tool to manage Jobs."""
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
+from mprun.errors import NoSuchJobError
 from mprun.models import Job, JobDefinition
-
-
-@dataclass
-class NoSuchJobError(Exception):
-    """Raised when trying to retrieve a Job that does not exist.
-
-    Attributes:
-        jid (int): Non-existent Job's ID.
-    """
-
-    jid: int
-
-    def __str__(self) -> str:
-        """Error's string representation."""
-        return f"Job with ID {self.jid} does not exist!"
 
 
 class JobManager:
