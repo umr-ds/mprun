@@ -32,6 +32,7 @@ ty:
     - pip install --group devel .
     - pip install --group server .
     - pip install --group client .
+    - pip install --group worker .
     - ty check
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -56,6 +57,7 @@ pytest:
     - pip install --group devel .
     - pip install --group server .
     - pip install --group client .
+    - pip install --group worker .
     - pytest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"

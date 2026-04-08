@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class InvalidParametersError(Exception):
+class InvalidParametersError(ValueError):
     """Raised when the user submits an invalid parameter set.
 
     Attributes:
@@ -19,7 +19,7 @@ class InvalidParametersError(Exception):
 
 
 @dataclass
-class NoSuchJobError(Exception):
+class NoSuchJobError(LookupError):
     """Raised when trying to retrieve a Job that does not exist.
 
     Attributes:
@@ -31,3 +31,18 @@ class NoSuchJobError(Exception):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Job with ID {self.jid} does not exist!"
+
+
+@dataclass
+class NoSuchWorkerError(LookupError):
+    """Raised when trying to retrieve a Worker that does not exist.
+
+    Attributes:
+        wid(int): Non-existent Worker's ID.
+    """
+
+    wid: int
+
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Worker with ID {self.wid} does not exist!"

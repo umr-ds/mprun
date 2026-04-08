@@ -34,6 +34,7 @@ dependencies = ["pydantic"]
 [dependency-groups]
 server = ["uvicorn", "fastapi", "tinydb"]
 client = ["typer", "httpx", "tomlkit"]
+worker = ["httpx"]
 devel = [
     "pre-commit",
     "hatchling",

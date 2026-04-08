@@ -4,12 +4,15 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
-from mprun.job_manager import JobManager, NoSuchJobError
-from mprun.models import InvalidParametersError, Job, JobDefinition
+from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
+from mprun.job_manager import JobManager
+from mprun.models import Job, JobDefinition, Worker
+from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
 DATA_PATH_ENV = "MPRUN_DATA_PATH"
@@ -23,6 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info(f"Starting server in {data_path}")
     app.state.job_manager = JobManager(data_path=data_path)
+    app.state.worker_manager = WorkerManager()
     try:
         yield
     finally:
@@ -31,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="mprun",
-    version="0.1.0",
+    version="0.0.1",
     lifespan=lifespan,
 )
 
@@ -77,6 +81,39 @@ def get_job(
     """Return a single job by ID."""
     logger.debug("Received job get request")
     try:
-        return jm.get_job(jid)
-    except NoSuchJobError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return jm.get(jid)
+    except NoSuchJobError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.post("/workers", response_model=Worker, status_code=HTTPStatus.CREATED)
+def register_worker(
+    name: str,
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Worker:
+    """Register a new worker."""
+    logger.debug("Received worker registration request")
+
+    return wm.register(name=name)
+
+
+@app.get("/workers", response_model=list[Worker])
+def list_workers(
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> list[Worker]:
+    """Return all registered workers."""
+    logger.debug("Received worker list request")
+    return wm.get_all()
+
+
+@app.get("/workers/{wid}", response_model=Job)
+def get_worker(
+    wid: int,
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Worker:
+    """Return a single worker by ID."""
+    logger.debug("Received worker get request")
+    try:
+        return wm.get(wid=wid)
+    except NoSuchWorkerError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err

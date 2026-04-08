@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from itertools import product
+from time import time
 from typing import Any
 from uuid import uuid4, uuid5
 
@@ -177,3 +178,42 @@ class Run(BaseModel):
         if isinstance(other, Run):
             return self.rid == other.rid
         return False
+
+
+class WorkerState(StrEnum):
+    """Possible states for Workers.
+
+    IDLE: Worker is not currently executing a Job.
+    WORKING: Worker is currently executing a Job.
+    DEAD: Worker is unreachable.
+    """
+
+    IDLE = "IDLE"
+    WORKING = "WORKING"
+    DEAD = "DEAD"
+
+
+class Worker(BaseModel):
+    """A Worker.
+
+    Attributes:
+        wid (int): Unique identifier - integer representation of a UUID.
+        name (str): Human readable name. Does not have to be unique, but is encouraged to be.
+        state (WorkerState): Worker's state. See WorkerState enum for behaviour documentation.
+    """
+
+    wid: int
+    name: str
+    state: WorkerState
+    last_checkin: float
+
+    @classmethod
+    def new(cls, name: str) -> Worker:
+        """Create new worker.
+
+        Args:
+            name (str): Human readable name. Does not have to be unique, but is encouraged to be.
+        """
+        return Worker(
+            wid=uuid4().int, name=name, state=WorkerState.IDLE, last_checkin=time()
+        )
