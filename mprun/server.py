@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
 from mprun.job_manager import JobManager
@@ -60,7 +60,9 @@ def create_job(
     try:
         job = jm.create_job(request)
     except InvalidParametersError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST, detail=str(err)
+        ) from err
     return job
 
 
@@ -83,7 +85,7 @@ def get_job(
     try:
         return jm.get(jid)
     except NoSuchJobError as err:
-        raise HTTPException(status_code=404, detail=str(err)) from err
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
 @app.post("/workers", response_model=Worker, status_code=HTTPStatus.CREATED)
@@ -106,14 +108,27 @@ def list_workers(
     return wm.get_all()
 
 
-@app.get("/workers/{wid}", response_model=Job)
+@app.get("/workers/{wid}", response_model=Worker)
 def get_worker(
     wid: int,
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Worker:
     """Return a single worker by ID."""
-    logger.debug("Received worker get request")
+    logger.debug(f"Received worker get request for id {wid}")
     try:
         return wm.get(wid=wid)
     except NoSuchWorkerError as err:
-        raise HTTPException(status_code=404, detail=str(err)) from err
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@app.post("/workers/checkin/{wid}")
+def checkin_worker(
+    wid: int, wm: WorkerManager = Depends(get_worker_manager)
+) -> Response:
+    """Endpoint to perform worker checkin."""
+    logger.debug(f"Received worker checkin for id {wid}")
+    try:
+        wm.checkin(wid=wid)
+        return Response(status_code=HTTPStatus.OK)
+    except NoSuchWorkerError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
