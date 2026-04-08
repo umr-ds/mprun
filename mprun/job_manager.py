@@ -37,7 +37,7 @@ class JobManager:
         """Close database & shut down."""
         self._db.close()
 
-    def all_jobs(self) -> list[Job]:
+    def get_all(self) -> list[Job]:
         """Get list of all existing Jobs."""
         docs = self._jobs_table.all()
         return [Job.model_validate(doc) for doc in docs]
@@ -55,7 +55,7 @@ class JobManager:
         self._jobs_table.insert(job.model_dump())
         return job
 
-    def get_job(self, jid: int) -> Job:
+    def get(self, jid: int) -> Job:
         """Get a Job by its ID.
 
         Args:

@@ -30,5 +30,5 @@ def test__create_randomised(name: str, params: dict[str, list[Any]]) -> None:
 
         job = manager.create_job(definition=definition)
 
-        retrieved = manager.get_job(jid=job.jid)
+        retrieved = manager.get(jid=job.jid)
         assert job == retrieved

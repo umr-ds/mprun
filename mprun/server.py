@@ -41,7 +41,12 @@ def get_job_manager(request: Request) -> JobManager:
     return request.app.state.job_manager
 
 
-@app.post("/jobs", response_model=Job, status_code=201)
+def get_worker_manager(request: Request) -> WorkerManager:
+    """Dependency to inject the shared WorkerManager."""
+    return request.app.state.worker_manager
+
+
+@app.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
 def create_job(
     request: JobDefinition,
     jm: JobManager = Depends(get_job_manager),
@@ -50,8 +55,8 @@ def create_job(
     logger.debug("Received job create request")
     try:
         job = jm.create_job(request)
-    except InvalidParametersError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidParametersError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
     return job
 
 
@@ -61,7 +66,7 @@ def list_jobs(
 ) -> list[Job]:
     """Return all existing jobs."""
     logger.debug("Received job list request")
-    return jm.all_jobs()
+    return jm.get_all()
 
 
 @app.get("/jobs/{jid}", response_model=Job)

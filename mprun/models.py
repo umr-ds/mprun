@@ -42,20 +42,20 @@ def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
     return expanded
 
 
-class State(StrEnum):
+class JobState(StrEnum):
     """Possible states for both Jobs and Runs.
 
     Meaning for Run:
-        WAITING: Run has nod been dispatched
-        RUNNING: Run has been dispatched, has not finished
-        FINISHED: Run has finished without error
-        FAILED: Run has finished with an error
+        WAITING: Run has nod been dispatched.
+        RUNNING: Run has been dispatched, has not finished.
+        FINISHED: Run has finished without error.
+        FAILED: Run has finished with an error.
 
     Meaning for Job:
-        WAITING: All runs are waiting
-        RUNNING: At least one run is running
-        FINISHED: All runs have finished without error
-        FAILED: At least one run has finished with an error
+        WAITING: All runs are waiting.
+        RUNNING: At least one run is running.
+        FINISHED: All runs have finished without error.
+        FAILED: At least one run has finished with an error.
     """
 
     WAITING = "WAITING"
@@ -86,7 +86,7 @@ class Job(BaseModel):
         jid (int): Unique identifier of this job. Generated automatically from uuid.uuid4.
                    (Integer representation of a UUID for serialisability)
         name (str): Human readable job name. Does not have to be unique.
-        state (State): Job's state. See docstring of State enum for behaviour documentation.
+        state (JobState): Job's state. See JobState enum for behaviour documentation.
         params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
                                        Will be used to generate runs by computing cross product of parameter lists.
         runs (list[Run]): List of runs that were generated from parameters.
@@ -94,7 +94,7 @@ class Job(BaseModel):
 
     jid: int
     name: str
-    state: State
+    state: JobState
     params: dict[str, list[Any]]
     runs: list[Run]
 
@@ -120,7 +120,7 @@ class Job(BaseModel):
             definition (JobDefinition): Definition of new Job
         """
         jid = uuid4()
-        state = State.WAITING
+        state = JobState.WAITING
         runs: list[Run] = []
         expanded = _expand_parameters(definition.params)
         for index, param_set in enumerate(expanded):
@@ -130,7 +130,7 @@ class Job(BaseModel):
                     rid=uuid5(namespace=jid, name=bytes(index)).int,
                     index=index,
                     name=f"{definition.name}-{index}",
-                    state=State.WAITING,
+                    state=JobState.WAITING,
                     params=param_set,
                 ),
             )
@@ -153,7 +153,7 @@ class Run(BaseModel):
         rid (int): Unique identifier for this Run. (Integer representation of a UUID for serialisability)
                     Generated with uuid.uuid5, using parent's job ID as namespace and index as name.
         name (str): Human-readable name. Generated using {job_name}-{index}.
-        state (State): Run's state. See docstring of State enum for behaviour documentation.
+        state (JobState): Run's state. See JobState enum for behaviour documentation.
         params (dict[str, Any]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
     """
 
@@ -161,7 +161,7 @@ class Run(BaseModel):
     index: int
     rid: int
     name: str
-    state: State
+    state: JobState
     params: dict[str, Any]
 
     def __str__(self) -> str:
