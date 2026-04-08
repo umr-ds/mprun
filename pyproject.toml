@@ -42,7 +42,7 @@ devel = [
     "pytest",
     "pytest-asyncio",
     "hypothesis",
-    "openapi-python-client",
+    "vermin",
 ]
 
 [project.urls]
@@ -91,6 +91,7 @@ select = [
     "A",
     "ANN",
     "ARG",
+    "ASYNC",
     "B",
     "BLE",
     "C",

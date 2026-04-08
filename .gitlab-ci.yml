@@ -1,9 +1,9 @@
 stages:
-  - lint
-  - typecheck
-  - unit_test
-ruff:
-  stage: lint
+  - check
+  - tests
+
+lint:
+  stage: check
   image: python:3.14
   script:
     - pip install --upgrade pip
@@ -12,8 +12,20 @@ ruff:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
+
+format:
+  stage: check
+  image: python:3.14
+  script:
+    - pip install --upgrade pip
+    - pip install --group devel .
+    - ruff format --check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
 ty:
-  stage: typecheck
+  stage: check
   image: python:3.14
   script:
     - pip install --upgrade pip
@@ -24,8 +36,20 @@ ty:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
+
+language-version:
+  stage: check
+  image: python:3.14
+  script:
+    - pip install --upgrade pip
+    - pip install --group devel .
+    - vermin .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
 pytest:
-  stage: unit_test
+  stage: tests
   image: python:3.14
   script:
     - pip install --upgrade pip

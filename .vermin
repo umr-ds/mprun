@@ -1,0 +1,6 @@
+[vermin]
+targets = 3.12-
+show_tips = no
+pessimistic = yes
+parse_comments = no
+only_show_violations = yes
