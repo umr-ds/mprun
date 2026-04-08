@@ -54,6 +54,7 @@ pytest:
   image: python:3.14
   script:
     - pip install --upgrade pip
+    - pip install .
     - pip install --group devel .
     - pip install --group server .
     - pip install --group client .

@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import Worker
+from mprun.models import Job, JobDefinition, Worker
 from mprun.server import DATA_PATH_ENV, app
+from tests.helpers import draw_job_definition
 
 
 class TestWorkers:
@@ -60,3 +61,20 @@ class TestWorkers:
                 worker_get = Worker.model_validate(response.json())
 
                 assert worker_get == worker
+
+
+class TestJobs:
+    """Tests for job-related endpoints."""
+
+    @given(job_definition=draw_job_definition())
+    def test_create_job(self, job_definition: JobDefinition) -> None:
+        """Test jobs creation."""
+        with TemporaryDirectory(delete=True) as data_dir:
+            putenv(DATA_PATH_ENV, data_dir)
+
+            with TestClient(app) as client:
+                response = client.post("/jobs", json=job_definition.model_dump())
+                assert response.status_code == HTTPStatus.CREATED
+                job = Job.model_validate(response.json())
+                assert job.name == job_definition.name
+                assert job.params == job_definition.params
