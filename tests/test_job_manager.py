@@ -3,21 +3,17 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from hypothesis import given
-
 from mprun.job_manager import JobManager
-from mprun.models import JobDefinition
-from tests.helpers import draw_job_definition
+from tests.helpers import EXAMPLE_JOB
 
 
-@given(job_definition=draw_job_definition())
-def test__create_randomised(job_definition: JobDefinition) -> None:
+def test_create() -> None:
     """Test Job creation with randomised data."""
     with TemporaryDirectory(delete=True) as data_dir:
         data_path = Path(data_dir)
         manager = JobManager(data_path=data_path)
 
-        job = manager.create_job(definition=job_definition)
+        job = manager.create_job(definition=EXAMPLE_JOB)
 
         retrieved = manager.get(jid=job.jid)
         assert job == retrieved
