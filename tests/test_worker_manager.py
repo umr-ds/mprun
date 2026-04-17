@@ -3,7 +3,7 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import Worker
+from mprun.models import WorkerData
 from mprun.worker_manager import WorkerManager
 
 
@@ -14,7 +14,7 @@ def test_worker_register(name: str) -> None:
     assert not manager.workers
 
     worker = manager.register(name=name)
-    assert isinstance(worker, Worker)
+    assert isinstance(worker, WorkerData)
     assert worker.name == name
 
     assert worker.wid in manager.workers

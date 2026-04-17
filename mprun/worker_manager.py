@@ -4,7 +4,7 @@ from time import time
 from uuid import uuid4
 
 from mprun.errors import NoSuchWorkerError
-from mprun.models import Worker
+from mprun.models import WorkerData
 
 
 class WorkerManager:
@@ -14,26 +14,26 @@ class WorkerManager:
         workers (dict[worker]): Dictionary of registered workers.
     """
 
-    workers: dict[int, Worker]
+    workers: dict[int, WorkerData]
 
     def __init__(self) -> None:
         """Initialise WorkerManager."""
         self.workers = {}
 
-    def get_all(self) -> list[Worker]:
+    def get_all(self) -> list[WorkerData]:
         """Get list of all registered workers."""
         return list(self.workers.values())
 
-    def register(self, name: str) -> Worker:
+    def register(self, name: str) -> WorkerData:
         """Registers a new worker with the manager.
 
         Args:
             name (str): New worker's name.
 
         Returns:
-            Worker: Newly created worker model.
+            WorkerData: Newly created worker model.
         """
-        worker = Worker.new(name=name)
+        worker = WorkerData.new(name=name)
 
         # just in case we happen to roll a UUID that already exists
         while worker.wid in self.workers:
@@ -42,14 +42,14 @@ class WorkerManager:
         self.workers[worker.wid] = worker
         return worker
 
-    def get(self, wid: int) -> Worker:
+    def get(self, wid: int) -> WorkerData:
         """Get worker with given ID.
 
         Args:
             wid (int): Worker's unique ID.
 
         Returns:
-            Worker: Worker model, if it exists.
+            WorkerData: Worker model, if it exists.
 
         Raises:
             NoSuchWorkerError: If no worker with the given id exists.

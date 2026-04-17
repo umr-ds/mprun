@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
 from mprun.job_manager import JobManager
-from mprun.models import Job, JobDefinition, Worker
+from mprun.models import Job, JobDefinition, WorkerData
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -88,31 +88,31 @@ def get_job(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@app.post("/workers", response_model=Worker, status_code=HTTPStatus.CREATED)
+@app.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
 def register_worker(
     name: str,
     wm: WorkerManager = Depends(get_worker_manager),
-) -> Worker:
+) -> WorkerData:
     """Register a new worker."""
     logger.debug("Received worker registration request")
 
     return wm.register(name=name)
 
 
-@app.get("/workers", response_model=list[Worker])
+@app.get("/workers", response_model=list[WorkerData])
 def list_workers(
     wm: WorkerManager = Depends(get_worker_manager),
-) -> list[Worker]:
+) -> list[WorkerData]:
     """Return all registered workers."""
     logger.debug("Received worker list request")
     return wm.get_all()
 
 
-@app.get("/workers/{wid}", response_model=Worker)
+@app.get("/workers/{wid}", response_model=WorkerData)
 def get_worker(
     wid: int,
     wm: WorkerManager = Depends(get_worker_manager),
-) -> Worker:
+) -> WorkerData:
     """Return a single worker by ID."""
     logger.debug(f"Received worker get request for id {wid}")
     try:

@@ -193,7 +193,7 @@ class WorkerState(StrEnum):
     DEAD = "DEAD"
 
 
-class Worker(BaseModel):
+class WorkerData(BaseModel):
     """A Worker.
 
     Attributes:
@@ -208,12 +208,12 @@ class Worker(BaseModel):
     last_checkin: float
 
     @classmethod
-    def new(cls, name: str) -> Worker:
+    def new(cls, name: str) -> WorkerData:
         """Create new worker.
 
         Args:
             name (str): Human readable name. Does not have to be unique, but is encouraged to be.
         """
-        return Worker(
+        return WorkerData(
             wid=uuid4().int, name=name, state=WorkerState.IDLE, last_checkin=time()
         )

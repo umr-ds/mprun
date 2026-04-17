@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import Worker
+from mprun.models import WorkerData
 from mprun.server import DATA_PATH_ENV, app
-from mprun.worker import checkin, register
+from mprun.worker import Worker
 
 
 @given(name=st.text())
@@ -19,8 +19,8 @@ def test_register(name: str) -> None:
         putenv(DATA_PATH_ENV, data_dir)
 
         with TestClient(app) as client:
-            worker = register(client=client, name=name)
-            assert isinstance(worker, Worker)
+            worker = Worker.register(client=client, name=name)
+            assert isinstance(worker, WorkerData)
             assert worker.name == name
 
 
@@ -31,5 +31,6 @@ def test_checkin(name: str) -> None:
         putenv(DATA_PATH_ENV, data_dir)
 
         with TestClient(app) as client:
-            worker = register(client=client, name=name)
-            checkin(client=client, self=worker)
+            metadata = Worker.register(client=client, name=name)
+            worker = Worker(client=client, metadata=metadata)
+            worker.checkin()
