@@ -51,6 +51,7 @@ Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 
 [project.scripts]
 mprun_client = "mprun.client:app"
+mprun_worker = "mprun.worker:main"
 
 [tool.ruff]
 exclude = [

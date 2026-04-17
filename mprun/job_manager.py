@@ -6,7 +6,7 @@ from tinydb import Query, TinyDB
 from tinydb.table import Table
 
 from mprun.errors import NoSuchJobError
-from mprun.models import Job, JobDefinition
+from mprun.models import Job, JobDefinition, Run
 
 
 class JobManager:
@@ -72,3 +72,32 @@ class JobManager:
         if not doc:
             raise NoSuchJobError(jid=jid)
         return Job.model_validate(doc)
+
+    def dispatch_waiting_run(self, wid: int) -> Run | None:
+        """Get a waiting Run.
+
+        Manager will check if there are any runs with the 'WAITING' state and return one, if available.
+        If dispatchable Run is found, set its state to "RUNNING" and its wid to the provided one.
+
+        Args:
+            wid: ID of Worker that's requesting work.
+
+        Returns:
+            Run | None: Run-object if a waiting Run is available, None if none available.
+        """
+        dispatch_query = Query()
+        disaptchable = self._jobs_table.search(dispatch_query.waiting_runs > 0)
+
+        for job_data in disaptchable:
+            job = Job.model_validate(job_data)
+            run = job.dispatch_run()
+            if run is None:
+                continue
+
+            run.wid = wid
+
+            update = Query()
+            self._jobs_table.update(job.model_dump(), update.jid == job.jid)
+            return run
+
+        return None

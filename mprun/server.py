@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
 from mprun.job_manager import JobManager
-from mprun.models import Job, JobDefinition, WorkerData
+from mprun.models import Job, JobDefinition, Run, WorkerData
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,30 @@ def list_workers(
     """Return all registered workers."""
     logger.debug("Received worker list request")
     return wm.get_all()
+
+
+@app.get("/workers/run", response_model=None)
+def get_run_for_worker(
+    wid: int,
+    jm: JobManager = Depends(get_job_manager),
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Run | Response:
+    """Workers query this endpoint to get a run to execute."""
+    try:
+        _ = wm.get(wid=wid)
+    except NoSuchWorkerError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+    dispatched_run = jm.dispatch_waiting_run(wid=wid)
+    if dispatched_run is None:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    try:
+        wm.assign_run(wid=wid, rid=dispatched_run.rid)
+    except NoSuchWorkerError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+    return dispatched_run
 
 
 @app.get("/workers/{wid}", response_model=WorkerData)

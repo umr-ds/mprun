@@ -4,7 +4,7 @@ from time import time
 from uuid import uuid4
 
 from mprun.errors import NoSuchWorkerError
-from mprun.models import WorkerData
+from mprun.models import WorkerData, WorkerState
 
 
 class WorkerManager:
@@ -55,7 +55,7 @@ class WorkerManager:
             NoSuchWorkerError: If no worker with the given id exists.
         """
         if wid not in self.workers:
-            raise NoSuchWorkerError
+            raise NoSuchWorkerError(wid=wid)
 
         return self.workers[wid]
 
@@ -71,6 +71,25 @@ class WorkerManager:
             NoSuchWorkerError: If no worker with the given id exists.
         """
         if wid not in self.workers:
-            raise NoSuchWorkerError
+            raise NoSuchWorkerError(wid=wid)
 
         self.workers[wid].last_checkin = time()
+
+    def assign_run(self, wid: int, rid: int) -> None:
+        """Assign Run to worker.
+
+        Stores that woker is curently executing given Run and sets Worker's state to "WORKING".
+
+        Args:
+            wid (int): Worker's ID.
+            rid (int): Run's ID.
+
+        Raises:
+            NoSuchWorkerError: If no worker with the given id exists.
+        """
+        if wid not in self.workers:
+            raise NoSuchWorkerError(wid=wid)
+
+        worker = self.workers[wid]
+        worker.state = WorkerState.WORKING
+        worker.run = rid

@@ -90,7 +90,8 @@ class Job(BaseModel):
         state (JobState): Job's state. See JobState enum for behaviour documentation.
         params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
                                        Will be used to generate runs by computing cross product of parameter lists.
-        runs (list[Run]): List of runs that were generated from parameters.
+        runs (list[Run]): List of Runs that were generated from parameters.
+        waiting_runs (int): Number of Runs that are waiting for dispatch.
     """
 
     jid: int
@@ -98,6 +99,7 @@ class Job(BaseModel):
     state: JobState
     params: dict[str, list[Any]]
     runs: list[Run]
+    waiting_runs: int
 
     def __str__(self) -> str:
         """Job's string representation."""
@@ -142,7 +144,31 @@ class Job(BaseModel):
             state=state,
             params=definition.params,
             runs=runs,
+            waiting_runs=len(
+                runs,
+            ),
         )
+
+    def dispatch_run(self) -> Run | None:
+        """Dispatches waiting Run.
+
+        Checks this Job's Rund to see if there is at least one with state "WAITING".
+        If more than one waiting Run exists, we do not guarantee the order in which they are dispatched.
+
+        Returns:
+            Run | None: Run-onject if a waiting Run exists, None otherwise.
+        """
+        waiting = [run for run in self.runs if run.state == JobState.WAITING]
+        if not waiting:
+            return None
+
+        dispatched = waiting[0]
+        dispatched.state = JobState.RUNNING
+        self.waiting_runs -= 1
+        if self.state == JobState.WAITING:
+            self.state = JobState.RUNNING
+
+        return dispatched
 
 
 class Run(BaseModel):
@@ -153,6 +179,8 @@ class Run(BaseModel):
         index (int): Run's index amongst its brethren.
         rid (int): Unique identifier for this Run. (Integer representation of a UUID for serialisability)
                     Generated with uuid.uuid5, using parent's job ID as namespace and index as name.
+        wid (int | None): If this Run has been dispatched to a worker, this attribute contains the worker's ID.
+                          None if Run has not yet been dispatched.
         name (str): Human-readable name. Generated using {job_name}-{index}.
         state (JobState): Run's state. See JobState enum for behaviour documentation.
         params (dict[str, Any]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
@@ -161,6 +189,7 @@ class Run(BaseModel):
     jid: int
     index: int
     rid: int
+    wid: int | None = None
     name: str
     state: JobState
     params: dict[str, Any]
@@ -200,12 +229,14 @@ class WorkerData(BaseModel):
         wid (int): Unique identifier - integer representation of a UUID.
         name (str): Human readable name. Does not have to be unique, but is encouraged to be.
         state (WorkerState): Worker's state. See WorkerState enum for behaviour documentation.
+        run: (int): If the worker is currently executing a Run, this attribute sotres that Run's ID.
     """
 
     wid: int
     name: str
     state: WorkerState
     last_checkin: float
+    run: int | None = None
 
     @classmethod
     def new(cls, name: str) -> WorkerData:
