@@ -86,9 +86,9 @@ class JobManager:
             Run | None: Run-object if a waiting Run is available, None if none available.
         """
         dispatch_query = Query()
-        disaptchable = self._jobs_table.search(dispatch_query.waiting_runs > 0)
+        dispatchable = self._jobs_table.search(dispatch_query.waiting_runs > 0)
 
-        for job_data in disaptchable:
+        for job_data in dispatchable:
             job = Job.model_validate(job_data)
             run = job.dispatch_run()
             if run is None:

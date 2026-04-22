@@ -117,7 +117,7 @@ def main() -> None:
     try:
         metadata = Worker.register(client=client, name=name)
     except HTTPStatusError as err:
-        logger.fatal("Worker registration fialed: %s", err, exc_info=True)
+        logger.fatal("Worker registration failed: %s", err, exc_info=True)
         goodbye(1)
 
     worker = Worker(client=client, metadata=metadata)

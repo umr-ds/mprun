@@ -14,7 +14,7 @@ from mprun.errors import InvalidParametersError
 
 
 def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
-    """Expand parameter set by creating coss-product of all parameters.
+    """Expand parameter set by creating cross-product of all parameters.
 
     Args:
         params (dict[str, list[Any]]): Dictionary of Lists of parameters
@@ -47,7 +47,7 @@ class JobState(StrEnum):
     """Possible states for both Jobs and Runs.
 
     Meaning for Run:
-        WAITING: Run has nod been dispatched.
+        WAITING: Run has not been dispatched.
         RUNNING: Run has been dispatched, has not finished.
         FINISHED: Run has finished without error.
         FAILED: Run has finished with an error.
@@ -152,11 +152,11 @@ class Job(BaseModel):
     def dispatch_run(self) -> Run | None:
         """Dispatches waiting Run.
 
-        Checks this Job's Rund to see if there is at least one with state "WAITING".
+        Checks this Job's Run to see if there is at least one with state "WAITING".
         If more than one waiting Run exists, we do not guarantee the order in which they are dispatched.
 
         Returns:
-            Run | None: Run-onject if a waiting Run exists, None otherwise.
+            Run | None: Run-object if a waiting Run exists, None otherwise.
         """
         waiting = [run for run in self.runs if run.state == JobState.WAITING]
         if not waiting:
