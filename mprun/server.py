@@ -51,14 +51,14 @@ def get_worker_manager(request: Request) -> WorkerManager:
 
 
 @app.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
-def create_job(
+async def create_job(
     request: JobDefinition,
     jm: JobManager = Depends(get_job_manager),
 ) -> Job:
     """Create a new job from JobCreateRequest and return it."""
     logger.debug("Received job create request")
     try:
-        job = jm.create_job(request)
+        job = await jm.create_job(request)
     except InvalidParametersError as err:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST, detail=str(err)
@@ -67,65 +67,65 @@ def create_job(
 
 
 @app.get("/jobs", response_model=list[Job])
-def list_jobs(
+async def list_jobs(
     jm: JobManager = Depends(get_job_manager),
 ) -> list[Job]:
     """Return all existing jobs."""
     logger.debug("Received job list request")
-    return jm.get_all()
+    return await jm.get_all()
 
 
 @app.get("/jobs/{jid}", response_model=Job)
-def get_job(
+async def get_job(
     jid: int,
     jm: JobManager = Depends(get_job_manager),
 ) -> Job:
     """Return a single job by ID."""
     logger.debug("Received job get request")
     try:
-        return jm.get(jid)
+        return await jm.get(jid)
     except NoSuchJobError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
 @app.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
-def register_worker(
+async def register_worker(
     name: str,
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> WorkerData:
     """Register a new worker."""
     logger.debug("Received worker registration request")
 
-    return wm.register(name=name)
+    return await wm.register(name=name)
 
 
 @app.get("/workers", response_model=list[WorkerData])
-def list_workers(
+async def list_workers(
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> list[WorkerData]:
     """Return all registered workers."""
     logger.debug("Received worker list request")
-    return wm.get_all()
+    return await wm.get_all()
 
 
 @app.get("/workers/run", response_model=None)
-def get_run_for_worker(
+async def get_run_for_worker(
     wid: int,
     jm: JobManager = Depends(get_job_manager),
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Run | Response:
     """Workers query this endpoint to get a run to execute."""
     try:
-        _ = wm.get(wid=wid)
+        _ = await wm.get(wid=wid)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
-    dispatched_run = jm.dispatch_waiting_run(wid=wid)
+    dispatched_run = await jm.dispatch_waiting_run(wid=wid)
     if dispatched_run is None:
         return Response(status_code=HTTPStatus.NO_CONTENT)
 
     try:
-        wm.assign_run(wid=wid, rid=dispatched_run.rid)
+        await wm.assign_run(wid=wid, rid=dispatched_run.rid)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
@@ -133,26 +133,26 @@ def get_run_for_worker(
 
 
 @app.get("/workers/{wid}", response_model=WorkerData)
-def get_worker(
+async def get_worker(
     wid: int,
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> WorkerData:
     """Return a single worker by ID."""
     logger.debug(f"Received worker get request for id {wid}")
     try:
-        return wm.get(wid=wid)
+        return await wm.get(wid=wid)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
 @app.post("/workers/checkin/{wid}")
-def checkin_worker(
+async def checkin_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:
     """Endpoint to perform worker checkin."""
     logger.debug(f"Received worker checkin for id {wid}")
     try:
-        wm.checkin(wid=wid)
+        await wm.checkin(wid=wid)
         return Response(status_code=HTTPStatus.OK)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err

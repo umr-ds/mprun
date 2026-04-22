@@ -1,5 +1,6 @@
 """Module contains tool to manage Workers."""
 
+from asyncio import Lock
 from time import time
 from uuid import uuid4
 
@@ -15,16 +16,19 @@ class WorkerManager:
     """
 
     workers: dict[int, WorkerData]
+    _state_mutex: Lock
 
     def __init__(self) -> None:
         """Initialise WorkerManager."""
         self.workers = {}
+        self._state_mutex = Lock()
 
-    def get_all(self) -> list[WorkerData]:
+    async def get_all(self) -> list[WorkerData]:
         """Get list of all registered workers."""
-        return list(self.workers.values())
+        async with self._state_mutex:
+            return list(self.workers.values())
 
-    def register(self, name: str) -> WorkerData:
+    async def register(self, name: str) -> WorkerData:
         """Registers a new worker with the manager.
 
         Args:
@@ -33,16 +37,17 @@ class WorkerManager:
         Returns:
             WorkerData: Newly created worker model.
         """
-        worker = WorkerData.new(name=name)
+        async with self._state_mutex:
+            worker = WorkerData.new(name=name)
 
-        # just in case we happen to roll a UUID that already exists
-        while worker.wid in self.workers:
-            worker.wid = uuid4().int
+            # just in case we happen to roll a UUID that already exists
+            while worker.wid in self.workers:
+                worker.wid = uuid4().int
 
-        self.workers[worker.wid] = worker
-        return worker
+            self.workers[worker.wid] = worker
+            return worker
 
-    def get(self, wid: int) -> WorkerData:
+    async def get(self, wid: int) -> WorkerData:
         """Get worker with given ID.
 
         Args:
@@ -54,12 +59,13 @@ class WorkerManager:
         Raises:
             NoSuchWorkerError: If no worker with the given id exists.
         """
-        if wid not in self.workers:
-            raise NoSuchWorkerError(wid=wid)
+        async with self._state_mutex:
+            if wid not in self.workers:
+                raise NoSuchWorkerError(wid=wid)
 
-        return self.workers[wid]
+            return self.workers[wid]
 
-    def checkin(self, wid: int) -> None:
+    async def checkin(self, wid: int) -> None:
         """Perform worker checkin.
 
         Sets workers 'last_checkin' to current time.
@@ -70,12 +76,13 @@ class WorkerManager:
         Raises:
             NoSuchWorkerError: If no worker with the given id exists.
         """
-        if wid not in self.workers:
-            raise NoSuchWorkerError(wid=wid)
+        async with self._state_mutex:
+            if wid not in self.workers:
+                raise NoSuchWorkerError(wid=wid)
 
-        self.workers[wid].last_checkin = time()
+            self.workers[wid].last_checkin = time()
 
-    def assign_run(self, wid: int, rid: int) -> None:
+    async def assign_run(self, wid: int, rid: int) -> None:
         """Assign Run to worker.
 
         Stores that woker is curently executing given Run and sets Worker's state to "WORKING".
@@ -87,9 +94,10 @@ class WorkerManager:
         Raises:
             NoSuchWorkerError: If no worker with the given id exists.
         """
-        if wid not in self.workers:
-            raise NoSuchWorkerError(wid=wid)
+        async with self._state_mutex:
+            if wid not in self.workers:
+                raise NoSuchWorkerError(wid=wid)
 
-        worker = self.workers[wid]
-        worker.state = WorkerState.WORKING
-        worker.run = rid
+            worker = self.workers[wid]
+            worker.state = WorkerState.WORKING
+            worker.run = rid

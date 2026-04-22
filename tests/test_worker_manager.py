@@ -1,5 +1,6 @@
 """Tests for worker_manager module."""
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -7,13 +8,14 @@ from mprun.models import WorkerData
 from mprun.worker_manager import WorkerManager
 
 
+@pytest.mark.asyncio
 @given(name=st.text())
-def test_worker_register(name: str) -> None:
+async def test_worker_register(name: str) -> None:
     """Test worker registration."""
     manager = WorkerManager()
     assert not manager.workers
 
-    worker = manager.register(name=name)
+    worker = await manager.register(name=name)
     assert isinstance(worker, WorkerData)
     assert worker.name == name
 
@@ -21,13 +23,14 @@ def test_worker_register(name: str) -> None:
     assert worker == manager.workers[worker.wid]
 
 
+@pytest.mark.asyncio
 @given(name=st.text())
-def test_worker_checkin(name: str) -> None:
+async def test_worker_checkin(name: str) -> None:
     """Test worker checkin."""
     manager = WorkerManager()
-    worker = manager.register(name=name)
+    worker = await manager.register(name=name)
 
     checkin_time = worker.last_checkin
-    manager.checkin(worker.wid)
+    await manager.checkin(worker.wid)
 
     assert worker.last_checkin > checkin_time
