@@ -1,6 +1,6 @@
 """Module contains tool to manage Jobs."""
 
-from asyncio import Lock
+from asyncio import Lock, to_thread
 from pathlib import Path
 
 from tinydb import Query, TinyDB
@@ -43,7 +43,7 @@ class JobManager:
     async def get_all(self) -> list[Job]:
         """Get list of all existing Jobs."""
         async with self._state_mutex:
-            docs = self._jobs_table.all()
+            docs = await to_thread(self._jobs_table.all)
             return [Job.model_validate(doc) for doc in docs]
 
     async def create_job(self, definition: JobDefinition) -> Job:
@@ -57,7 +57,7 @@ class JobManager:
         """
         async with self._state_mutex:
             job = Job.new(definition=definition)
-            self._jobs_table.insert(job.model_dump())
+            await to_thread(self._jobs_table.insert, job.model_dump())
             return job
 
     async def get(self, jid: int) -> Job:
@@ -74,7 +74,7 @@ class JobManager:
         """
         async with self._state_mutex:
             q = Query()
-            doc = self._jobs_table.get(q.jid == jid)
+            doc = await to_thread(self._jobs_table.get, q.jid == jid)
             if not doc:
                 raise NoSuchJobError(jid=jid)
             return Job.model_validate(doc)
@@ -93,7 +93,9 @@ class JobManager:
         """
         async with self._state_mutex:
             dispatch_query = Query()
-            dispatchable = self._jobs_table.search(dispatch_query.waiting_runs > 0)
+            dispatchable = await to_thread(
+                self._jobs_table.search, dispatch_query.waiting_runs > 0
+            )
 
             for job_data in dispatchable:
                 job = Job.model_validate(job_data)
@@ -104,7 +106,9 @@ class JobManager:
                 run.wid = wid
 
                 update = Query()
-                self._jobs_table.update(job.model_dump(), update.jid == job.jid)
+                await to_thread(
+                    self._jobs_table.update, job.model_dump(), update.jid == job.jid
+                )
                 return run
 
             return None
