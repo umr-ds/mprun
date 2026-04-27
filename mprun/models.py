@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from enum import StrEnum
 from itertools import product
+from pathlib import Path
 from time import time
 from typing import Any
 from uuid import uuid4, uuid5
 
 from pydantic import BaseModel
+from tomlkit import load
 
 from mprun.errors import InvalidParametersError
 
@@ -76,6 +78,20 @@ class JobDefinition(BaseModel):
 
     name: str
     params: dict[str, list[Any]]
+
+    @classmethod
+    def from_toml(cls, file_path: Path) -> JobDefinition:
+        """Load a JobDefinition from a TOML file.
+
+        Returns:
+            JobDefinition: Parsed & validated JobDefinition from file.
+
+        Raises:
+            OSError: If reading file fails
+            pydantic.ValidationError: IF contents of file are not valid JobDefinition
+        """
+        with file_path.open("rb") as f:
+            return cls.model_validate(load(f).unwrap(), strict=True)
 
 
 class Job(BaseModel):

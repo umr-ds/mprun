@@ -2,8 +2,8 @@
 
 from mprun.models import JobDefinition
 
-EXAMPLE_JOB = JobDefinition(
-    name="example job",
+TEST_JOB = JobDefinition(
+    name="test job",
     params={
         "foo": [1, 2, 3],
         "bar": ["one", "two", "three"],

@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 
 from mprun.models import Job, WorkerData
 from mprun.server import DATA_PATH_ENV, app
-from tests.helpers import EXAMPLE_JOB
+from tests.helpers.job_helper import TEST_JOB
 
 
 class TestWorkers:
@@ -84,8 +84,8 @@ class TestJobs:
             mp.setenv(DATA_PATH_ENV, data_dir)
 
             with TestClient(app) as client:
-                response = client.post("/jobs", json=EXAMPLE_JOB.model_dump())
+                response = client.post("/jobs", json=TEST_JOB.model_dump())
                 assert response.status_code == HTTPStatus.CREATED
                 job = Job.model_validate(response.json())
-                assert job.name == EXAMPLE_JOB.name
-                assert job.params == EXAMPLE_JOB.params
+                assert job.name == TEST_JOB.name
+                assert job.params == TEST_JOB.params

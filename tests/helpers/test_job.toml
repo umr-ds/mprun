@@ -1,0 +1,6 @@
+name = "test job"
+
+[params]
+foo = [1, 2, 3]
+bar = ["one", "two", "three"]
+buzz = [true, false]

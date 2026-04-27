@@ -8,7 +8,6 @@ from httpx import Client, HTTPStatusError, codes
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
-from tomlkit import load
 from typer import Argument, Exit, Option, Typer, echo
 
 from mprun.models import Job, JobDefinition
@@ -128,8 +127,7 @@ def create_job(
 
     job_definition: JobDefinition
     try:
-        with job_path.open("rb") as f:
-            job_definition = JobDefinition.model_validate(load(f).unwrap(), strict=True)
+        job_definition = JobDefinition.from_toml(job_path)
     except OSError as err:
         echo(f"Error reading file: {err}", err=True)
         raise Exit(1) from err

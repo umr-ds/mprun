@@ -7,7 +7,7 @@ import pytest
 
 from mprun.job_manager import JobManager
 from mprun.models import JobState, Run
-from tests.helpers import EXAMPLE_JOB
+from tests.helpers.job_helper import TEST_JOB
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ async def test_create() -> None:
         all_jobs = await manager.get_all()
         assert not all_jobs
 
-        job = await manager.create_job(definition=EXAMPLE_JOB)
+        job = await manager.create_job(definition=TEST_JOB)
 
         retrieved = await manager.get(jid=job.jid)
         assert job == retrieved
@@ -40,7 +40,7 @@ async def test_dispatch() -> None:
         dispatched = await manager.dispatch_waiting_run(0)
         assert dispatched is None
 
-        job = await manager.create_job(definition=EXAMPLE_JOB)
+        job = await manager.create_job(definition=TEST_JOB)
 
         retrieved = await manager.get(jid=job.jid)
         assert retrieved.state == JobState.WAITING
