@@ -9,4 +9,6 @@ TEST_JOB = JobDefinition(
         "bar": ["one", "two", "three"],
         "buzz": [True, False],
     },
+    executable="main_script.py",
+    results=[],
 )

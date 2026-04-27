@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from enum import StrEnum
 from itertools import product
+from os import X_OK, access
 from pathlib import Path
 from time import time
 from typing import Any
 from uuid import uuid4, uuid5
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import load
 
 from mprun.errors import InvalidParametersError
@@ -68,16 +69,29 @@ class JobState(StrEnum):
 
 
 class JobDefinition(BaseModel):
-    """Minimal info to create a new Job.
+    """Minimal info needed to create a new Job.
 
     Args:
         name (str): Human readable job name. Does not have to be unique.
         params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
                                        Will be used to generate runs by computing cross product of parameter lists.
+        executable (str): Name of the Job's main executable.
+                          If loading from TOML, must point to a File located in the same directory as the TOML definition.
+        results (list[str]): Names of files/directories that should be saved after a Run.
+        setup_executable (str | None): Optional executable to be run before the main executable.
+                                       If loading from TOML, must point to a File located in the same directory as the TOML definition.
+        environment_variables (dict[str, str] | None): Optional dictionary of environment variables to set before running main executable.
+        environemnt_files (list[tuple[str, str]] | None): Optional list of additional files/directories that should be copied to the worker's file system before running the main executable.
+                                                          Each item should be Tuple of form (<file_name>, <copy_to>).
     """
 
     name: str
     params: dict[str, list[Any]]
+    executable: str
+    results: list[str]
+    setup_executable: str | None = None
+    environment_variables: dict[str, str] | None = None
+    environemnt_files: list[tuple[str, str]] | None = None
 
     @classmethod
     def from_toml(cls, file_path: Path) -> JobDefinition:
@@ -88,10 +102,99 @@ class JobDefinition(BaseModel):
 
         Raises:
             OSError: If reading file fails
-            pydantic.ValidationError: IF contents of file are not valid JobDefinition
+            pydantic.ValidationError: If contents of file are not valid JobDefinition
         """
         with file_path.open("rb") as f:
-            return cls.model_validate(load(f).unwrap(), strict=True)
+            return cls.model_validate(
+                load(f).unwrap(), strict=True, context=file_path.parent
+            )
+
+    @field_validator("executable", mode="after")
+    @classmethod
+    def validate_executable(cls, name: str, info: ValidationInfo) -> str:
+        """Validate executable name.
+
+        If a Path to a folder is provided, we check if there is a file inside the folder with the provided executable name,
+        and whether that file is marked as executable.
+
+        Returns:
+            str: Validates executable name
+
+        Raises:
+            ValueError: If validation fails.
+        """
+        if not isinstance(
+            info.context, Path
+        ):  # if no path is provided, there's no further evaluation to do.
+            return name
+        dir_path: Path = info.context
+        if not dir_path.is_dir():  # the directory should actually be a directory...
+            msg = f"{dir_path} not a directory"
+            raise ValueError(msg)
+
+        executable_path = dir_path / name
+        if not executable_path.is_file(
+            follow_symlinks=False
+        ):  # a file with the name should exist
+            msg = f"No such file: {executable_path}"
+            raise ValueError(msg)
+        if not access(executable_path, X_OK):  # the file should be marked executable
+            msg = f"File {executable_path} not marked executable"
+            raise ValueError(msg)
+
+        return name
+
+    @field_validator("setup_executable", mode="after")
+    @classmethod
+    def validate_setup(cls, name: str | None, info: ValidationInfo) -> str | None:
+        """Validate optional setup executable.
+
+        If a name is included, the validation logic is basically the same as with the main executable.
+
+        Returns:
+            str | None: None, if no name was given, otherwise the vaidated name.
+
+        Raises:
+            ValueError: If validation fails.
+        """
+        if name is None:  # if no name is given, the nthere's nothing to do
+            return None
+        return cls.validate_executable(
+            name=name, info=info
+        )  # if a name is given, the validation logic is tha same as with the main executable.
+
+    @field_validator("environemnt_files", mode="after")
+    @classmethod
+    def validate_env_files(
+        cls, files: list[tuple[str, str]] | None, info: ValidationInfo
+    ) -> list[tuple[str, str]] | None:
+        """Validate optional list of environment files.
+
+        Returns:
+            list[tuple[str, str]] | None: None, if no files were specified. Otherise, the validated list of files.
+
+        Raises:
+            ValueError: If validation fails.
+        """
+        if files is None:  # if no files were given, the nthere's nothing to do
+            return None
+
+        if not isinstance(
+            info.context, Path
+        ):  # if no path is provided, there's no further evaluation to do.
+            return files
+        dir_path: Path = info.context
+        if not dir_path.is_dir():  # the directory should actually be a directory...
+            msg = f"{dir_path} not a directory"
+            raise ValueError(msg)
+
+        for env_file, _ in files:
+            file_path = dir_path / env_file
+            if not file_path.is_file(follow_symlinks=False):
+                msg = f"No such file: {file_path}"
+                raise ValueError(msg)
+
+        return files
 
 
 class Job(BaseModel):

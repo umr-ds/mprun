@@ -1,4 +1,6 @@
 name = "test job"
+executable = "main_script.py"
+results = []
 
 [params]
 foo = [1, 2, 3]
