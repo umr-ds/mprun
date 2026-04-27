@@ -1,6 +1,9 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build~=0.11.7"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
 
 [project]
 name = "mprun"
@@ -8,6 +11,8 @@ version = "0.0.1"
 description = "Multi-Parameter Task Runner"
 readme = "Readme.md"
 requires-python = ">= 3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 
 authors = [
   {name = "Markus Sommer", email = "msommer@informatik.uni-marburg.de"}
@@ -17,7 +22,6 @@ maintainers = [
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
 
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -29,21 +33,31 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 
-dependencies = ["pydantic"]
+dependencies = ["pydantic~=2.13.3"]
 
 [dependency-groups]
-server = ["uvicorn", "fastapi", "tinydb"]
-client = ["typer", "httpx", "tomlkit"]
-worker = ["httpx"]
-devel = [
-    "pre-commit",
-    "hatchling",
-    "ruff",
-    "ty",
-    "pytest",
-    "pytest-asyncio",
-    "hypothesis",
-    "vermin",
+server = [
+    "uvicorn~=0.46.0",
+    "fastapi~=0.136.1",
+    "tinydb~=4.8.2"
+]
+client = [
+    "typer~=0.25.0",
+    "httpx~=0.28.1",
+    "tomlkit~=0.14.0"
+]
+worker = [
+    "httpx~=0.28.1",
+]
+dev = [
+    "pre-commit~=4.6.0",
+    "hatchling~=1.29.0",
+    "ruff~=0.15.12",
+    "ty~=0.0.32",
+    "pytest~=9.0.3",
+    "pytest-asyncio~=1.3.0",
+    "hypothesis~=6.152.3",
+    "vermin~=1.8.0",
 ]
 
 [project.urls]
@@ -131,11 +145,18 @@ select = [
     "W",
     "YTT"
 ]
-ignore = ["E501"]
+ignore = [
+    "E501", # we no longer live in a world of 80 character terminals.
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["S", "PLR2004"]
-"mprun/client.py" = ["FBT"]
+"tests/*.py" = [
+    "S", # there's a bunch of things (like plenty of asserts) which are entirely normal for tests
+    "PLR2004", # tests need to compare against known good ('magic') values
+]
+"mprun/client.py" = [
+    "FBT", # that's just how CLI flags work...
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

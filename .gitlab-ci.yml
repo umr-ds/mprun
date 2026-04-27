@@ -1,65 +1,67 @@
+variables:
+  UV_VERSION: "0.11.7"
+  PYTHON_VERSION: "3.14"
+  BASE_LAYER: trixie-slim
+  UV_LINK_MODE: copy
+  UV_CACHE_DIR: ".uv-cache"
+
+cache:
+  key:
+    files:
+      - uv.lock
+  paths:
+    - $UV_CACHE_DIR
+
 stages:
   - check
   - tests
 
 lint:
   stage: check
-  image: python:3.14
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - pip install --upgrade pip
-    - pip install --group devel .
-    - ruff check
+    - uv sync --only-dev --frozen
+    - uv run ruff check
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 format:
   stage: check
-  image: python:3.14
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - pip install --upgrade pip
-    - pip install --group devel .
-    - ruff format --check
+    - uv sync --only-dev --frozen
+    - uv run ruff format --check
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 ty:
   stage: check
-  image: python:3.14
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - pip install --upgrade pip
-    - pip install --group devel .
-    - pip install --group server .
-    - pip install --group client .
-    - pip install --group worker .
-    - ty check
+    - uv sync --all-groups --frozen
+    - uv run ty check
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 language-version:
   stage: check
-  image: python:3.14
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - pip install --upgrade pip
-    - pip install --group devel .
-    - vermin .
+    - uv sync --only-dev --frozen
+    - uv run vermin .
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 pytest:
   stage: tests
-  image: python:3.14
+  image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
   script:
-    - pip install --upgrade pip
-    - pip install .
-    - pip install --group devel .
-    - pip install --group server .
-    - pip install --group client .
-    - pip install --group worker .
-    - pytest
+    - uv sync --all-groups --frozen
+    - uv run pytest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
