@@ -1,8 +1,8 @@
 """Tests for worker module."""
 
-from os import putenv
 from tempfile import TemporaryDirectory
 
+import pytest
 from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
@@ -15,8 +15,11 @@ from mprun.worker import Worker
 @given(name=st.text())
 def test_register(name: str) -> None:
     """Test worker registration."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        putenv(DATA_PATH_ENV, data_dir)
+    with (
+        TemporaryDirectory(delete=True) as data_dir,
+        pytest.MonkeyPatch.context() as mp,
+    ):
+        mp.setenv(DATA_PATH_ENV, data_dir)
 
         with TestClient(app) as client:
             worker = Worker.register(client=client, name=name)
@@ -27,8 +30,11 @@ def test_register(name: str) -> None:
 @given(name=st.text())
 def test_checkin(name: str) -> None:
     """Test worker checkin."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        putenv(DATA_PATH_ENV, data_dir)
+    with (
+        TemporaryDirectory(delete=True) as data_dir,
+        pytest.MonkeyPatch.context() as mp,
+    ):
+        mp.setenv(DATA_PATH_ENV, data_dir)
 
         with TestClient(app) as client:
             metadata = Worker.register(client=client, name=name)

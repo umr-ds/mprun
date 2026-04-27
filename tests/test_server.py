@@ -1,9 +1,9 @@
 """Tests for server module."""
 
 from http import HTTPStatus
-from os import putenv
 from tempfile import TemporaryDirectory
 
+import pytest
 from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
@@ -19,8 +19,11 @@ class TestWorkers:
     @given(name=st.text())
     def test_woker_register(self, name: str) -> None:
         """Test worker registration."""
-        with TemporaryDirectory(delete=True) as data_dir:
-            putenv(DATA_PATH_ENV, data_dir)
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            mp.setenv(DATA_PATH_ENV, data_dir)
 
             with TestClient(app) as client:
                 response = client.post("/workers", params={"name": name})
@@ -31,8 +34,11 @@ class TestWorkers:
     @given(names=st.lists(elements=st.text()))
     def test_worker_list(self, names: list[str]) -> None:
         """Test worker list-endpoint."""
-        with TemporaryDirectory(delete=True) as data_dir:
-            putenv(DATA_PATH_ENV, data_dir)
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            mp.setenv(DATA_PATH_ENV, data_dir)
 
             with TestClient(app) as client:
                 for name in names:
@@ -48,8 +54,11 @@ class TestWorkers:
     @given(name=st.text())
     def test_worker_get(self, name: str) -> None:
         """Test worker get-endpoint."""
-        with TemporaryDirectory(delete=True) as data_dir:
-            putenv(DATA_PATH_ENV, data_dir)
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            mp.setenv(DATA_PATH_ENV, data_dir)
 
             with TestClient(app) as client:
                 response = client.post("/workers", params={"name": name})
@@ -68,8 +77,11 @@ class TestJobs:
 
     def test_create_job(self) -> None:
         """Test jobs creation."""
-        with TemporaryDirectory(delete=True) as data_dir:
-            putenv(DATA_PATH_ENV, data_dir)
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            mp.setenv(DATA_PATH_ENV, data_dir)
 
             with TestClient(app) as client:
                 response = client.post("/jobs", json=EXAMPLE_JOB.model_dump())
