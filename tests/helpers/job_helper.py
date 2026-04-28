@@ -10,5 +10,8 @@ TEST_JOB = JobDefinition(
         "buzz": [True, False],
     },
     executable="main_script.py",
-    results=[],
+    setup_executable="setup_script.py",
+    results=["/tmp/envfile"],
+    environment_variables={"foo": "bar"},
+    environment_files={"envfile.txt": "/tmp/envfile"},
 )

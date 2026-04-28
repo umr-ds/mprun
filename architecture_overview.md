@@ -54,7 +54,7 @@ Encryption/authentication of communication is, at this point, out-of-scope of th
 
 When submitting a Job, the client needs the following files:
 
-- The Job's metadata - stored in a TOML file named `job_description.toml`. This file contains:
+- The Job's metadata - stored in a TOML file. This file contains:
   - The Job's name
   - The parameter set
   - The name of the executable/script that should be run in each instance
@@ -65,16 +65,16 @@ When submitting a Job, the client needs the following files:
 - The optional setup executable (name must match the metadata)
 - Optional dependency files/directories (names must match metadata)
 
-The client then creates zip archive containing all these files - this is called the *Job Bundle*.
-The Bundle is then uploaded to the server via its REST interface.
+The client then creates zip archive containing all these files.
+The archive is then uploaded to the server via its REST interface.
 The server then creates the Job's Runs by computing the cross product of the Job's parameter set.
 
 ## Worker Run retrieval
 
 When a worker is idle, it will periodically check with the server for work.
 If the server has at least one Run that has not been dispatched to a worker, it will dispatch such a run to the requesting worker.
-The worker receives the specific Run's metadata (specifically its unique combination of parameters), as well as the parent Job's bundle.
-The worker will unpack the bundle, copy all optional dependency files/directories to their specified locations (if any exist), run the setup executable (if it exists), and finally run the main executable, providing it with the concrete set of parameters for this Run.
+The worker receives the specific Run's metadata (specifically its unique combination of parameters), as well as the parent Job's archive.
+The worker will unpack the archive, copy all optional dependency files/directories to their specified locations (if any exist), run the setup executable (if it exists), and finally run the main executable, providing it with the concrete set of parameters for this Run.
 (If any of these steps fails for any reason, this worker will abort and notify the server of the failure. It will attach any logs/error messages that were produced)
 Once the main executable has terminated, the worker will create a zip archive from all the files/directories defined in the Job's result-list and upload this archive to the server.
 Should the main executable fail - either by abnormal process termination or by exiting with a non-zero exit code - the worker will still collect any available results, as well as any log message and upload them to the server, while specifying that the Run failed.

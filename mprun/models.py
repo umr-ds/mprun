@@ -8,6 +8,7 @@ from os import X_OK, access
 from pathlib import Path
 from time import time
 from uuid import uuid4, uuid5
+from zipfile import ZIP_LZMA, ZipFile
 
 from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
@@ -84,8 +85,8 @@ class JobDefinition(BaseModel):
         setup_executable (str | None): Optional executable to be run before the main executable.
                                        If loading from TOML, must point to a File located in the same directory as the TOML definition.
         environment_variables (dict[str, str] | None): Optional dictionary of environment variables to set before running main executable.
-        environemnt_files (list[tuple[str, str]] | None): Optional list of additional files/directories that should be copied to the worker's file system before running the main executable.
-                                                          Each item should be Tuple of form (<file_name>, <copy_to>).
+        environment_files (dict[str, str] | None): Optional list of additional files/directories that should be copied to the worker's file system before running the main executable.
+                                                   Each item should be of form {<file_name>: <copy_to>}.
     """
 
     name: str
@@ -94,7 +95,7 @@ class JobDefinition(BaseModel):
     results: list[str]
     setup_executable: str | None = None
     environment_variables: dict[str, str] | None = None
-    environemnt_files: list[tuple[str, str]] | None = None
+    environment_files: dict[str, str] | None = None
 
     def dump_toml(self, file_path: Path) -> None:
         """Dump contents of JobDefinition into ``file_path``.
@@ -185,20 +186,20 @@ class JobDefinition(BaseModel):
             name=name, info=info
         )  # if a name is given, the validation logic is tha same as with the main executable.
 
-    @field_validator("environemnt_files", mode="after")
+    @field_validator("environment_files", mode="after")
     @classmethod
     def validate_env_files(
-        cls, files: list[tuple[str, str]] | None, info: ValidationInfo
-    ) -> list[tuple[str, str]] | None:
+        cls, files: dict[str, str] | None, info: ValidationInfo
+    ) -> dict[str, str] | None:
         """Validate optional list of environment files.
 
         Args:
-            files (list[tuple[str, str]] | None): List of Tuples (<file_name>, <copy_to>). Methos will check if `file_name` exists. Does not validate `copy_to`.
-                                                  If None, no validation happens.
+            files (dict[str, str] | None): Dict of form {<file_name>: <copy_to>}. Method will check if `file_name` exists. Does not validate `copy_to`.
+                                           If None, no validation happens.
             info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
 
         Returns:
-            list[tuple[str, str]] | None: None, if no files were specified. Otherise, the validated list of files.
+            dict[str, str] | None: None, if no files were specified. Otherise, the validated list of files.
 
         Raises:
             ValueError: If validation fails.
@@ -215,13 +216,52 @@ class JobDefinition(BaseModel):
             msg = f"{dir_path} not a directory"
             raise ValueError(msg)
 
-        for env_file, _ in files:
+        for env_file in files:
             file_path = dir_path / env_file
             if not file_path.is_file(follow_symlinks=False):
                 msg = f"No such file: {file_path}"
                 raise ValueError(msg)
 
         return files
+
+    def create_archive(self, job_toml: Path) -> None:
+        """Create archive for Job.
+
+        Tries to create zip archive of all files specified in this JobDefinition.
+        Created archive will be located in same directory as files.
+
+        Args:
+            job_toml (Path): Path to the Job's TOML file. All other Job files need to be located in the same directory.
+
+        Raises:
+            FileNotFoundError: If ``job_toml``, its parent directory, or any referenced file
+                (``executable``, ``setup_executable``, entries in ``environemnt_files``) does not exist.
+            PermissionError: If the archive destination directory is not writable, or any source
+                file is not readable.
+            OSError: For other I/O failures (e.g. disk full) during archive creation or file writes.
+            lzma.LZMAError: If LZMA compression fails (rare; typically memory pressure or corrupt data).
+        """
+        directory = job_toml.parent
+        archive_path = directory / "job_archive.zip"
+        with ZipFile(
+            archive_path,
+            mode="w",
+            compression=ZIP_LZMA,
+            allowZip64=True,
+        ) as zf:
+            zf.write(job_toml, job_toml.name)  # add JobDefinition itself
+            zf.write(
+                directory / self.executable, self.executable
+            )  # add main executable
+            if self.setup_executable:
+                zf.write(
+                    directory / self.setup_executable, self.setup_executable
+                )  # add setup executable (if one is specified)
+            if self.environment_files:
+                for environment_file in self.environment_files:
+                    zf.write(
+                        directory / environment_file, environment_file
+                    )  # add environment files (if any are specified)
 
 
 class Job(BaseModel):

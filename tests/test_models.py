@@ -1,7 +1,9 @@
 """Tests for models module."""
 
 from pathlib import Path
+from shutil import copytree
 from tempfile import TemporaryDirectory
+from zipfile import ZipFile
 
 from tomlkit import load
 
@@ -9,7 +11,8 @@ from mprun.models import Job, JobDefinition
 from tests.helpers.job_helper import TEST_JOB
 
 HERE = Path(__file__).resolve().parent
-TEST_JOB_FILE = HERE / "artefacts" / "test_job" / "job_definition.toml"
+TEST_JOB_DIRECTORY = HERE / "artefacts" / "test_job"
+TEST_JOB_FILE = TEST_JOB_DIRECTORY / "job_definition.toml"
 
 
 def test_job_creation() -> None:
@@ -37,3 +40,29 @@ def test_job_definition_dump() -> None:
             raw = load(f).unwrap()
         reloaded = JobDefinition.model_validate(raw, strict=True)
         assert reloaded == TEST_JOB
+
+
+def test_job_archive() -> None:
+    """Verify Job archive creation.
+
+    Will create archive int temporary directory, and check if everything is inside.
+    """
+    with TemporaryDirectory(delete=True) as test_dir:
+        directory = Path(test_dir)
+        copytree(
+            TEST_JOB_DIRECTORY, directory, symlinks=False, dirs_exist_ok=True
+        )  # copy Job files to clean test directory
+        job_definition = JobDefinition.from_toml(directory / "job_definition.toml")
+        job_definition.create_archive(directory / "job_definition.toml")
+
+        archive_path = directory / "job_archive.zip"
+        assert archive_path.is_file()
+
+        with ZipFile(archive_path, mode="r") as zf:  # check if everything is there
+            contents = zf.namelist()
+
+            assert job_definition.executable in contents
+            assert job_definition.setup_executable in contents
+            assert job_definition.environment_files is not None
+            for env_file in job_definition.environment_files:
+                assert env_file in contents

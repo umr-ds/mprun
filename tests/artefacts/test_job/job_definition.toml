@@ -1,8 +1,15 @@
 name = "test job"
 executable = "main_script.py"
-results = []
+setup_executable = "setup_script.py"
+results = ["/tmp/envfile"]
 
 [params]
 foo = [1, 2, 3]
 bar = ["one", "two", "three"]
 buzz = [true, false]
+
+[environment_variables]
+"foo" = "bar"
+
+[environment_files]
+"envfile.txt" = "/tmp/envfile"
