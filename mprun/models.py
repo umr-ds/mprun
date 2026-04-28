@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4, uuid5
 
 from pydantic import BaseModel, ValidationInfo, field_validator
-from tomlkit import load
+from tomlkit import dump, load
 
 from mprun.errors import InvalidParametersError
 
@@ -93,6 +93,16 @@ class JobDefinition(BaseModel):
     environment_variables: dict[str, str] | None = None
     environemnt_files: list[tuple[str, str]] | None = None
 
+    def dump_toml(self, file_path: Path) -> None:
+        """Dump contents of JobDefinition into ``file_path``.
+
+        Args:
+            file_path (Path): Path to TOML file.
+        """
+        data = self.model_dump(exclude_none=True)
+        with file_path.open("w", encoding="utf-8") as f:
+            dump(data=data, fp=f)
+
     @classmethod
     def from_toml(cls, file_path: Path) -> JobDefinition:
         """Load a JobDefinition from a TOML file.
@@ -104,7 +114,7 @@ class JobDefinition(BaseModel):
             OSError: If reading file fails
             pydantic.ValidationError: If contents of file are not valid JobDefinition
         """
-        with file_path.open("rb") as f:
+        with file_path.open("r") as f:
             return cls.model_validate(
                 load(f).unwrap(), strict=True, context=file_path.parent
             )
@@ -116,6 +126,10 @@ class JobDefinition(BaseModel):
 
         If a Path to a folder is provided, we check if there is a file inside the folder with the provided executable name,
         and whether that file is marked as executable.
+
+        Args:
+            name (str): Name of executable. Just the name, NOT the full path. Full path will be computed from ValidationInfo.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
 
         Returns:
             str: Validates executable name
@@ -151,6 +165,11 @@ class JobDefinition(BaseModel):
 
         If a name is included, the validation logic is basically the same as with the main executable.
 
+        Args:
+            name (str | None): Name of executable. Just the name, NOT the full path. Full path will be computed from ValidationInfo.
+                               If None, no validation happens.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
+
         Returns:
             str | None: None, if no name was given, otherwise the vaidated name.
 
@@ -169,6 +188,11 @@ class JobDefinition(BaseModel):
         cls, files: list[tuple[str, str]] | None, info: ValidationInfo
     ) -> list[tuple[str, str]] | None:
         """Validate optional list of environment files.
+
+        Args:
+            files (list[tuple[str, str]] | None): List of Tuples (<file_name>, <copy_to>). Methos will check if `file_name` exists. Does not validate `copy_to`.
+                                                  If None, no validation happens.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
 
         Returns:
             list[tuple[str, str]] | None: None, if no files were specified. Otherise, the validated list of files.
