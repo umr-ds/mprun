@@ -3,7 +3,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pytest
 from tomlkit import load
 
 from mprun.models import Job, JobDefinition

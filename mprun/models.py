@@ -7,7 +7,6 @@ from itertools import product
 from os import X_OK, access
 from pathlib import Path
 from time import time
-from typing import Any
 from uuid import uuid4, uuid5
 
 from pydantic import BaseModel, ValidationInfo, field_validator
@@ -15,16 +14,20 @@ from tomlkit import dump, load
 
 from mprun.errors import InvalidParametersError
 
+type TOMLScalar = str | int | float | bool  # TOML-serialisable types for Job params
 
-def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
+
+def _expand_parameters(
+    params: dict[str, list[TOMLScalar]],
+) -> list[dict[str, TOMLScalar]]:
     """Expand parameter set by creating cross-product of all parameters.
 
     Args:
-        params (dict[str, list[Any]]): Dictionary of Lists of parameters
+        params (dict[str, list[TOMLScalar]]): Dictionary of Lists of parameters
 
     Returns:
-        list[dict[str, Any]]: List of Dicts of single parameter set, each containing one value from the provided lists.
-                              All possible permutations.
+        list[dict[str, TOMLScalar]]: List of Dicts of single parameter set, each containing one value from the provided lists.
+                                     All possible permutations.
     """
     if not params:
         raise InvalidParametersError(reason="Empty parameters not allowed")
@@ -37,7 +40,7 @@ def _expand_parameters(params: dict[str, list[Any]]) -> list[dict[str, Any]]:
         if not values:
             raise InvalidParametersError(reason="Parameter lists must not be empty")
 
-    expanded: list[dict[str, Any]] = []
+    expanded: list[dict[str, TOMLScalar]] = []
 
     keys = list(params.keys())
     for values in product(*params.values()):
@@ -73,8 +76,8 @@ class JobDefinition(BaseModel):
 
     Args:
         name (str): Human readable job name. Does not have to be unique.
-        params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
-                                       Will be used to generate runs by computing cross product of parameter lists.
+        params (dict[str, list[TOMLScalar]]): Job's parameters. Each parameter should be a list of discrete TOML-serializable values (str, int, float, bool).
+                                              Will be used to generate runs by computing cross product of parameter lists.
         executable (str): Name of the Job's main executable.
                           If loading from TOML, must point to a File located in the same directory as the TOML definition.
         results (list[str]): Names of files/directories that should be saved after a Run.
@@ -86,7 +89,7 @@ class JobDefinition(BaseModel):
     """
 
     name: str
-    params: dict[str, list[Any]]
+    params: dict[str, list[TOMLScalar]]
     executable: str
     results: list[str]
     setup_executable: str | None = None
@@ -231,8 +234,8 @@ class Job(BaseModel):
                    (Integer representation of a UUID for serialisability)
         name (str): Human readable job name. Does not have to be unique.
         state (JobState): Job's state. See JobState enum for behaviour documentation.
-        params (dict[str, list[Any]]): Job's parameters. Each parameter should be a list of discrete values.
-                                       Will be used to generate runs by computing cross product of parameter lists.
+        params (dict[str, list[TOMLScalar]]): Job's parameters. Each parameter should be a list of discrete TOML-serializable values.
+                                              Will be used to generate runs by computing cross product of parameter lists.
         runs (list[Run]): List of Runs that were generated from parameters.
         waiting_runs (int): Number of Runs that are waiting for dispatch.
     """
@@ -240,7 +243,7 @@ class Job(BaseModel):
     jid: int
     name: str
     state: JobState
-    params: dict[str, list[Any]]
+    params: dict[str, list[TOMLScalar]]
     runs: list[Run]
     waiting_runs: int
 
@@ -326,7 +329,7 @@ class Run(BaseModel):
                           None if Run has not yet been dispatched.
         name (str): Human-readable name. Generated using {job_name}-{index}.
         state (JobState): Run's state. See JobState enum for behaviour documentation.
-        params (dict[str, Any]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
+        params (dict[str, TOMLScalar]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
     """
 
     jid: int
@@ -335,7 +338,7 @@ class Run(BaseModel):
     wid: int | None = None
     name: str
     state: JobState
-    params: dict[str, Any]
+    params: dict[str, TOMLScalar]
 
     def __str__(self) -> str:
         """Return a string representation of the Job."""
