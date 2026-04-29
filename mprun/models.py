@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum, StrEnum, auto
 from itertools import product
 from os import X_OK, access
 from pathlib import Path
@@ -72,6 +72,17 @@ class JobState(StrEnum):
     FAILED = "FAILED"
 
 
+class ValidationMode(Enum):
+    """Different modes for validation of Jobs/JobDefinitions.
+
+    DATA_ONLY: Only validate Job data (contents of Job/JobDefinition object).
+    DATA_AND_FILES: Also validate Job files (check if filenames speicifed in Job actually exist).
+    """
+
+    DATA_ONLY = auto()
+    DATA_AND_FILES = auto()
+
+
 class JobDefinition(BaseModel):
     """Minimal info needed to create a new Job.
 
@@ -108,17 +119,22 @@ class JobDefinition(BaseModel):
             dump(data=data, fp=f)
 
     @classmethod
-    def from_toml(cls, file_path: Path) -> JobDefinition:
+    def load_toml(
+        cls, file_path: Path, validation_mode: ValidationMode
+    ) -> JobDefinition:
         """Load a JobDefinition from a TOML file.
 
         Returns:
             JobDefinition: Parsed & validated JobDefinition from file.
+            validation_mode (ValidationMode): Extend of validation. (See ValidationMode for meanings)
 
         Raises:
             OSError: If reading file fails
             pydantic.ValidationError: If contents of file are not valid JobDefinition
         """
         with file_path.open("r") as f:
+            if validation_mode == ValidationMode.DATA_ONLY:
+                return cls.model_validate(load(f).unwrap(), strict=True)
             return cls.model_validate(
                 load(f).unwrap(), strict=True, context=file_path.parent
             )

@@ -5,9 +5,7 @@ from shutil import copytree
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
-from tomlkit import load
-
-from mprun.models import Job, JobDefinition
+from mprun.models import Job, JobDefinition, ValidationMode
 from tests.helpers.job_helper import TEST_JOB
 
 HERE = Path(__file__).resolve().parent
@@ -24,7 +22,9 @@ def test_job_creation() -> None:
 
 def test_job_definition_load() -> None:
     """Assure that tests.helpers.job_helper.TEST_JOB and job_definition.toml have equivalent information."""
-    loaded = JobDefinition.from_toml(TEST_JOB_FILE)
+    loaded = JobDefinition.load_toml(
+        TEST_JOB_FILE, validation_mode=ValidationMode.DATA_AND_FILES
+    )
     assert loaded == TEST_JOB
 
 
@@ -36,9 +36,9 @@ def test_job_definition_dump() -> None:
     with TemporaryDirectory(delete=True) as test_dir:
         test_file = Path(test_dir) / "test_job.toml"
         TEST_JOB.dump_toml(test_file)
-        with test_file.open("rb") as f:
-            raw = load(f).unwrap()
-        reloaded = JobDefinition.model_validate(raw, strict=True)
+        reloaded = JobDefinition.load_toml(
+            file_path=test_file, validation_mode=ValidationMode.DATA_ONLY
+        )
         assert reloaded == TEST_JOB
 
 
@@ -52,7 +52,10 @@ def test_job_archive() -> None:
         copytree(
             TEST_JOB_DIRECTORY, directory, symlinks=False, dirs_exist_ok=True
         )  # copy Job files to clean test directory
-        job_definition = JobDefinition.from_toml(directory / "job_definition.toml")
+        job_definition = JobDefinition.load_toml(
+            directory / "job_definition.toml",
+            validation_mode=ValidationMode.DATA_AND_FILES,
+        )
         job_definition.create_archive(directory / "job_definition.toml")
 
         archive_path = directory / "job_archive.zip"

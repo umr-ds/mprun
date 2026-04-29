@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from typer import Argument, Exit, Option, Typer, echo
 
-from mprun.models import Job, JobDefinition
+from mprun.models import Job, JobDefinition, ValidationMode
 
 console = Console()
 app = Typer()
@@ -127,7 +127,9 @@ def create_job(
 
     job_definition: JobDefinition
     try:
-        job_definition = JobDefinition.from_toml(job_path)
+        job_definition = JobDefinition.load_toml(
+            file_path=job_path, validation_mode=ValidationMode.DATA_AND_FILES
+        )
     except OSError as err:
         echo(f"Error reading file: {err}", err=True)
         raise Exit(1) from err
