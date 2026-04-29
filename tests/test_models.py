@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from zipfile import ZipFile
 
 from mprun.models import Job, JobDefinition, ValidationMode
 from tests.helpers.job_helper import (
@@ -56,11 +55,4 @@ def test_job_archive() -> None:
         assert archive_path == directory / "job_archive.zip"
         assert archive_path.is_file()
 
-        with ZipFile(archive_path, mode="r") as zf:  # check if everything is there
-            contents = zf.namelist()
-
-            assert job_definition.executable in contents
-            assert job_definition.setup_executable in contents
-            assert job_definition.environment_files is not None
-            for env_file in job_definition.environment_files:
-                assert env_file in contents
+        job_definition.validate_archive(archive_path=archive_path)

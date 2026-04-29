@@ -13,7 +13,7 @@ from zipfile import ZIP_LZMA, ZipFile
 from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
 
-from mprun.errors import InvalidParametersError
+from mprun.errors import ArchiveValidationError, InvalidParametersError
 
 type TOMLScalar = str | int | float | bool  # TOML-serialisable types for Job params
 
@@ -268,7 +268,7 @@ class JobDefinition(BaseModel):
             compression=ZIP_LZMA,
             allowZip64=True,
         ) as zf:
-            zf.write(job_toml, job_toml.name)  # add JobDefinition itself
+            zf.write(job_toml, "job_definition.toml")  # add JobDefinition itself
             zf.write(
                 directory / self.executable, self.executable
             )  # add main executable
@@ -282,6 +282,40 @@ class JobDefinition(BaseModel):
                         directory / environment_file, environment_file
                     )  # add environment files (if any are specified)
         return archive_path
+
+    def validate_archive(self, archive_path: Path) -> None:
+        """Validate Job archive.
+
+        Args:
+            archive_path (Path): Path of the Job's archive
+
+        Raises:
+            ArchiveValidationError: If the archive's contents do not match the JobDefinition.
+        """
+        with ZipFile(archive_path, mode="r") as zf:
+            contents = zf.namelist()
+            if "job_definition.toml" not in contents:
+                msg = "Archive does not contain Job definition"
+                raise ArchiveValidationError(reason=msg)
+            with zf.open("job_definition.toml", "r") as f:
+                archive_definition = JobDefinition.model_validate(
+                    load(f).unwrap(), strict=True
+                )
+                if archive_definition != self:
+                    msg = "Job definition in archive is different"
+                    raise ArchiveValidationError(reason=msg)
+
+            if self.executable not in contents:
+                msg = "Archive does not contain main executable"
+                raise ArchiveValidationError(reason=msg)
+            if self.setup_executable and self.setup_executable not in contents:
+                msg = "Archive does not contain setup executable"
+                raise ArchiveValidationError(reason=msg)
+            if self.environment_files:
+                for env_file in self.environment_files:
+                    if env_file not in contents:
+                        msg = f"Archive does not contain environment file {env_file}"
+                        raise ArchiveValidationError(reason=msg)
 
 
 class Job(BaseModel):

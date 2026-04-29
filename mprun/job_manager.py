@@ -57,6 +57,12 @@ class JobManager:
 
         Returns:
             Job: Newly created Job.
+
+        Raises:
+            ArchiveValidationError: If archive contents do not match the JobDefinition.
+            zipfile.BadZipFile: If archive is not a valid ZIP file.
+            OSError: If writing archive to disk fails (e.g. disk full, permission denied).
+            FileExistsError: If job data directory already exists (UUID collision).
         """
         async with self._state_mutex:
             job = Job.new(definition=definition)
@@ -69,6 +75,8 @@ class JobManager:
 
             with job_archive_path.open("wb") as f:
                 await to_thread(copyfileobj, archive, f)
+
+            definition.validate_archive(archive_path=job_archive_path)
 
             return job
 

@@ -116,6 +116,51 @@ def get_job(
         _print_job(job)
 
 
+def _load_job_archive(job_path: Path) -> tuple[JobDefinition, Path]:
+    """Attempt to load the Job definition & create the Job archive.
+
+    On error, produce an appropriate error message and quit.
+    """
+    try:
+        definition = JobDefinition.load_toml(
+            file_path=job_path, validation_mode=ValidationMode.DATA_AND_FILES
+        )
+        archive_path = definition.create_archive(job_toml=job_path)
+    except FileNotFoundError as err:
+        echo(f"Error accessing file: {err}", err=True)
+        raise Exit(1) from err
+    except PermissionError as err:
+        echo(f"Error accessing file: {err}", err=True)
+        raise Exit(1) from err
+    except OSError as err:
+        echo(f"Error reading file: {err}", err=True)
+        raise Exit(1) from err
+    except ValidationError as err:
+        echo(f"Error validating job definition: {err}", err=True)
+        raise Exit(1) from err
+    except LZMAError as err:
+        echo(f"Error compressing archive: {err}", err=True)
+        raise Exit(1) from err
+    return definition, archive_path
+
+
+def _echo_create_job_http_error(err: HTTPStatusError) -> None:
+    """Attempt to extract deatilas from HTTP error and produce an appropriate error message."""
+    try:
+        detail = err.response.json().get("detail", str(err))
+    except Exception:  # noqa: BLE001
+        detail = str(err)
+    status = err.response.status_code
+    if status == codes.BAD_REQUEST:
+        echo(f"Invalid job parameters: {detail}", err=True)
+    elif status == codes.UNPROCESSABLE_ENTITY:
+        echo(f"Invalid job definition or archive: {detail}", err=True)
+    elif status == codes.INTERNAL_SERVER_ERROR:
+        echo(f"Server error: {detail}", err=True)
+    else:
+        echo(f"HTTP error {status}: {detail}", err=True)
+
+
 @client.command("create", help="Create a new job from a job definition.")
 def create_job(
     job_file: str = Argument(help="Path to job definition"),
@@ -132,28 +177,7 @@ def create_job(
         echo(f"File {job_path} does not exist.", err=True)
         raise Exit(1)
 
-    job_definition: JobDefinition
-    archive_path: Path
-    try:
-        job_definition = JobDefinition.load_toml(
-            file_path=job_path, validation_mode=ValidationMode.DATA_AND_FILES
-        )
-        archive_path = job_definition.create_archive(job_toml=job_path)
-    except OSError as err:
-        echo(f"Error reading file: {err}", err=True)
-        raise Exit(1) from err
-    except FileNotFoundError as err:
-        echo(f"Error accessing file: {err}", err=True)
-        raise Exit(1) from err
-    except PermissionError as err:
-        echo(f"Error accessing file: {err}", err=True)
-        raise Exit(1) from err
-    except ValidationError as err:
-        echo(f"Error validating job definition: {err}", err=True)
-        raise Exit(1) from err
-    except LZMAError as err:
-        echo(f"Error compressing archive: {err}", err=True)
-        raise Exit(1) from err
+    job_definition, archive_path = _load_job_archive(job_path)
 
     echo(f"Creating job with name {job_definition.name}")
 
@@ -168,7 +192,7 @@ def create_job(
                 files={"archive": ("job_archive.zip", archive_file, "application/zip")},
             ).raise_for_status()
     except HTTPStatusError as err:
-        echo(f"HTTP Error: {err}", err=True)
+        _echo_create_job_http_error(err)
         raise Exit(1) from err
 
     job: Job

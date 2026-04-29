@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
+from zipfile import BadZipFile
 
 from fastapi import (
     Depends,
@@ -19,7 +20,12 @@ from fastapi import (
 )
 from pydantic import ValidationError
 
-from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
+from mprun.errors import (
+    ArchiveValidationError,
+    InvalidParametersError,
+    NoSuchJobError,
+    NoSuchWorkerError,
+)
 from mprun.job_manager import JobManager
 from mprun.models import Job, JobDefinition, Run, WorkerData
 from mprun.worker_manager import WorkerManager
@@ -79,6 +85,15 @@ async def create_job(
     except InvalidParametersError as err:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST, detail=str(err)
+        ) from err
+    except (ArchiveValidationError, BadZipFile) as err:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
+        ) from err
+    except OSError as err:
+        logger.exception("I/O error during job creation")
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(err)
         ) from err
     return job
 

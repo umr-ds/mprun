@@ -3,7 +3,18 @@
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
+class ArchiveValidationError(ValueError):
+    """Raised when a Job archive fails validation."""
+
+    reason: str
+
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Job archive invalid! Reason: {self.reason}"
+
+
+@dataclass(frozen=True)
 class InvalidParametersError(ValueError):
     """Raised when the user submits an invalid parameter set.
 
@@ -15,10 +26,10 @@ class InvalidParametersError(ValueError):
 
     def __str__(self) -> str:
         """Error's string representation."""
-        return f"Job Parameters invalid! Reason: {self.reason}"
+        return f"Job parameters invalid! Reason: {self.reason}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class NoSuchJobError(LookupError):
     """Raised when trying to retrieve a Job that does not exist.
 
@@ -33,7 +44,7 @@ class NoSuchJobError(LookupError):
         return f"Job with ID {self.jid} does not exist!"
 
 
-@dataclass
+@dataclass(frozen=True)
 class NoSuchWorkerError(LookupError):
     """Raised when trying to retrieve a Worker that does not exist.
 
