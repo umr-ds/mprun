@@ -2,14 +2,15 @@
 
 from asyncio import Lock, to_thread
 from pathlib import Path
-from shutil import copyfileobj
+from shutil import copy, copyfileobj
+from tempfile import TemporaryDirectory
 from typing import BinaryIO
 
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
 from mprun.errors import NoSuchJobError
-from mprun.models import Job, JobDefinition, Run
+from mprun.models import JOB_ARCHIVE_NAME, Job, JobDefinition, Run
 
 
 class JobManager:
@@ -66,17 +67,24 @@ class JobManager:
         """
         async with self._state_mutex:
             job = Job.new(definition=definition)
+
+            with TemporaryDirectory(delete=True) as tmp_dir:
+                # copy archive to temporary directory for validation
+                tmp_archive = Path(tmp_dir) / JOB_ARCHIVE_NAME
+                with tmp_archive.open("wb") as f:
+                    await to_thread(copyfileobj, archive, f)
+                definition.validate_archive(archive_path=tmp_archive)
+
+                # if validation successful, store archive permanently
+                job_path = self.data_path / str(job.jid)
+                job_path.mkdir(parents=False, exist_ok=False)
+                job_archive = job_path / JOB_ARCHIVE_NAME
+
+                await to_thread(
+                    copy, src=tmp_archive, dst=job_archive, follow_symlinks=False
+                )
+
             await to_thread(self._jobs_table.insert, job.model_dump())
-
-            # store archive on disk
-            job_path = self.data_path / str(job.jid)
-            job_path.mkdir(parents=False, exist_ok=False)
-            job_archive_path = job_path / "job_archive.zip"
-
-            with job_archive_path.open("wb") as f:
-                await to_thread(copyfileobj, archive, f)
-
-            definition.validate_archive(archive_path=job_archive_path)
 
             return job
 

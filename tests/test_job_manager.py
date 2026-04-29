@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from mprun.job_manager import JobManager
-from mprun.models import Job, JobState, Run
+from mprun.models import JOB_ARCHIVE_NAME, Job, JobState, Run
 from tests.helpers.job_helper import copy_job_to_test_environment
 
 
@@ -35,6 +35,10 @@ async def test_create() -> None:
         all_jobs = await manager.get_all()
         assert len(all_jobs) == 1
         assert all_jobs[0] == job
+
+        archive_path = manager.data_path / str(job.jid) / JOB_ARCHIVE_NAME
+        assert archive_path.is_file()
+        job.definition.validate_archive(archive_path=archive_path)
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,9 @@ from mprun.errors import ArchiveValidationError, InvalidParametersError
 
 type TOMLScalar = str | int | float | bool  # TOML-serialisable types for Job params
 
+JOB_DEFINITION_NAME = "job_definition.toml"
+JOB_ARCHIVE_NAME = "job_archive.zip"
+
 
 def _expand_parameters(
     params: dict[str, list[TOMLScalar]],
@@ -261,14 +264,14 @@ class JobDefinition(BaseModel):
             lzma.LZMAError: If LZMA compression fails (rare; typically memory pressure or corrupt data).
         """
         directory = job_toml.parent
-        archive_path = directory / "job_archive.zip"
+        archive_path = directory / JOB_ARCHIVE_NAME
         with ZipFile(
             archive_path,
             mode="w",
             compression=ZIP_LZMA,
             allowZip64=True,
         ) as zf:
-            zf.write(job_toml, "job_definition.toml")  # add JobDefinition itself
+            zf.write(job_toml, JOB_DEFINITION_NAME)  # add JobDefinition itself
             zf.write(
                 directory / self.executable, self.executable
             )  # add main executable
@@ -294,10 +297,10 @@ class JobDefinition(BaseModel):
         """
         with ZipFile(archive_path, mode="r") as zf:
             contents = zf.namelist()
-            if "job_definition.toml" not in contents:
+            if JOB_DEFINITION_NAME not in contents:
                 msg = "Archive does not contain Job definition"
                 raise ArchiveValidationError(reason=msg)
-            with zf.open("job_definition.toml", "r") as f:
+            with zf.open(JOB_DEFINITION_NAME, "r") as f:
                 archive_definition = JobDefinition.model_validate(
                     load(f).unwrap(), strict=True
                 )
