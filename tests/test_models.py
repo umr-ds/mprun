@@ -6,11 +6,7 @@ from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 from mprun.models import Job, JobDefinition, ValidationMode
-from tests.helpers.job_helper import TEST_JOB
-
-HERE = Path(__file__).resolve().parent
-TEST_JOB_DIRECTORY = HERE / "artefacts" / "test_job"
-TEST_JOB_FILE = TEST_JOB_DIRECTORY / "job_definition.toml"
+from tests.helpers.job_helper import TEST_JOB, TEST_JOB_DIRECTORY, TEST_JOB_FILE
 
 
 def test_job_creation() -> None:

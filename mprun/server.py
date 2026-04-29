@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.job_manager.close()
 
 
-app = FastAPI(
+server = FastAPI(
     title="mprun",
     version="0.0.1",
     lifespan=lifespan,
@@ -50,7 +50,7 @@ def get_worker_manager(request: Request) -> WorkerManager:
     return request.app.state.worker_manager
 
 
-@app.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
+@server.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
 async def create_job(
     request: JobDefinition,
     jm: JobManager = Depends(get_job_manager),
@@ -66,7 +66,7 @@ async def create_job(
     return job
 
 
-@app.get("/jobs", response_model=list[Job])
+@server.get("/jobs", response_model=list[Job])
 async def list_jobs(
     jm: JobManager = Depends(get_job_manager),
 ) -> list[Job]:
@@ -75,7 +75,7 @@ async def list_jobs(
     return await jm.get_all()
 
 
-@app.get("/jobs/{jid}", response_model=Job)
+@server.get("/jobs/{jid}", response_model=Job)
 async def get_job(
     jid: int,
     jm: JobManager = Depends(get_job_manager),
@@ -88,7 +88,7 @@ async def get_job(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@app.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
+@server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
 async def register_worker(
     name: str,
     wm: WorkerManager = Depends(get_worker_manager),
@@ -99,7 +99,7 @@ async def register_worker(
     return await wm.register(name=name)
 
 
-@app.get("/workers", response_model=list[WorkerData])
+@server.get("/workers", response_model=list[WorkerData])
 async def list_workers(
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> list[WorkerData]:
@@ -108,7 +108,7 @@ async def list_workers(
     return await wm.get_all()
 
 
-@app.get("/workers/run", response_model=None)
+@server.get("/workers/run", response_model=None)
 async def get_run_for_worker(
     wid: int,
     jm: JobManager = Depends(get_job_manager),
@@ -132,7 +132,7 @@ async def get_run_for_worker(
     return dispatched_run
 
 
-@app.get("/workers/{wid}", response_model=WorkerData)
+@server.get("/workers/{wid}", response_model=WorkerData)
 async def get_worker(
     wid: int,
     wm: WorkerManager = Depends(get_worker_manager),
@@ -145,7 +145,7 @@ async def get_worker(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@app.post("/workers/checkin/{wid}")
+@server.post("/workers/checkin/{wid}")
 async def checkin_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:

@@ -2,6 +2,8 @@
 
 """Module contains client application."""
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from httpx import Client, HTTPStatusError, codes
@@ -13,16 +15,20 @@ from typer import Argument, Exit, Option, Typer, echo
 from mprun.models import Job, JobDefinition, ValidationMode
 
 console = Console()
-app = Typer()
+client = Typer()
 
 
 DEFAULT_URL = "http://localhost:8000"
 
 
-def _get_client(base_url: str | None) -> Client:
-    if base_url is None:
-        base_url = DEFAULT_URL
-    return Client(base_url=base_url)
+def _default_client_factory(base_url: str | None) -> AbstractContextManager[Client]:
+    return Client(base_url=base_url or DEFAULT_URL)
+
+
+# allows us to inject different client for testing
+_client_factory: Callable[[str | None], AbstractContextManager[Client]] = (
+    _default_client_factory
+)
 
 
 def _print_jobs(jobs: list[Job]) -> None:
@@ -43,7 +49,7 @@ def _print_job(job: Job) -> None:
     console.print(table)
 
 
-@app.command("list", help="Get list of all jobs")
+@client.command("list", help="Get list of all jobs")
 def list_jobs(
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
@@ -54,7 +60,7 @@ def list_jobs(
 ) -> None:
     """Get list of all jobs."""
     try:
-        with _get_client(base_url) as client:
+        with _client_factory(base_url) as client:
             resp = client.get("/jobs")
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
@@ -73,7 +79,7 @@ def list_jobs(
         raise Exit(1) from err
 
 
-@app.command("get", help="Get specific job by its ID")
+@client.command("get", help="Get specific job by its ID")
 def get_job(
     jid: int = Argument(
         help="Job's ID (use List command to get all jobs and their IDs)"
@@ -87,7 +93,7 @@ def get_job(
 ) -> None:
     """Get specific job by its ID."""
     try:
-        with _get_client(base_url) as client:
+        with _client_factory(base_url) as client:
             resp = client.get(f"/jobs/{jid}")
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
@@ -109,7 +115,7 @@ def get_job(
         _print_job(job)
 
 
-@app.command("create", help="Create a new job from a job definition.")
+@client.command("create", help="Create a new job from a job definition.")
 def create_job(
     job_file: str = Argument(help="Path to job definition"),
     base_url: str | None = Option(
@@ -140,7 +146,7 @@ def create_job(
     echo(f"Creating job with name {job_definition.name}")
 
     try:
-        with _get_client(base_url) as client:
+        with _client_factory(base_url) as client:
             resp = client.post(
                 "/jobs", json=job_definition.model_dump()
             ).raise_for_status()
@@ -162,4 +168,4 @@ def create_job(
 
 
 if __name__ == "__main__":
-    app()
+    client()

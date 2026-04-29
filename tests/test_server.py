@@ -9,7 +9,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.models import Job, WorkerData
-from mprun.server import DATA_PATH_ENV, app
+from mprun.server import DATA_PATH_ENV, server
 from tests.helpers.job_helper import TEST_JOB
 
 
@@ -25,7 +25,7 @@ class TestWorkers:
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
 
-            with TestClient(app) as client:
+            with TestClient(server) as client:
                 response = client.post("/workers", params={"name": name})
                 assert response.status_code == HTTPStatus.CREATED
                 worker = WorkerData.model_validate(response.json())
@@ -40,7 +40,7 @@ class TestWorkers:
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
 
-            with TestClient(app) as client:
+            with TestClient(server) as client:
                 for name in names:
                     response = client.post("/workers", params={"name": name})
                     assert response.status_code == HTTPStatus.CREATED
@@ -60,7 +60,7 @@ class TestWorkers:
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
 
-            with TestClient(app) as client:
+            with TestClient(server) as client:
                 response = client.post("/workers", params={"name": name})
                 assert response.status_code == HTTPStatus.CREATED
                 worker = WorkerData.model_validate(response.json())
@@ -83,7 +83,7 @@ class TestJobs:
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
 
-            with TestClient(app) as client:
+            with TestClient(server) as client:
                 response = client.post("/jobs", json=TEST_JOB.model_dump())
                 assert response.status_code == HTTPStatus.CREATED
                 job = Job.model_validate(response.json())

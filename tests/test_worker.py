@@ -8,7 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.models import WorkerData
-from mprun.server import DATA_PATH_ENV, app
+from mprun.server import DATA_PATH_ENV, server
 from mprun.worker import Worker
 
 
@@ -21,7 +21,7 @@ def test_register(name: str) -> None:
     ):
         mp.setenv(DATA_PATH_ENV, data_dir)
 
-        with TestClient(app) as client:
+        with TestClient(server) as client:
             worker = Worker.register(client=client, name=name)
             assert isinstance(worker, WorkerData)
             assert worker.name == name
@@ -36,7 +36,7 @@ def test_checkin(name: str) -> None:
     ):
         mp.setenv(DATA_PATH_ENV, data_dir)
 
-        with TestClient(app) as client:
+        with TestClient(server) as client:
             metadata = Worker.register(client=client, name=name)
             worker = Worker(client=client, metadata=metadata)
             worker.checkin()
