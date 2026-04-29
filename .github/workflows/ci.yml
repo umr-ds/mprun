@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  UV_CACHE_DIR: .uv-cache
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/astral-sh/uv:0.11.7-python3.14-trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('uv.lock') }}
+      - run: uv sync --only-dev --frozen
+      - run: uv run ruff check
+
+  format:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/astral-sh/uv:0.11.7-python3.14-trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('uv.lock') }}
+      - run: uv sync --only-dev --frozen
+      - run: uv run ruff format --check
+
+  ty:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/astral-sh/uv:0.11.7-python3.14-trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('uv.lock') }}
+      - run: uv sync --all-groups --frozen
+      - run: uv run ty check
+
+  language-version:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/astral-sh/uv:0.11.7-python3.14-trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('uv.lock') }}
+      - run: uv sync --only-dev --frozen
+      - run: uv run vermin .
+
+  pytest:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/astral-sh/uv:0.11.7-python3.14-trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('uv.lock') }}
+      - run: uv sync --all-groups --frozen
+      - run: uv run pytest
