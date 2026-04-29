@@ -2,6 +2,8 @@
 
 from asyncio import Lock, to_thread
 from pathlib import Path
+from shutil import copyfileobj
+from typing import BinaryIO
 
 from tinydb import Query, TinyDB
 from tinydb.table import Table
@@ -46,11 +48,12 @@ class JobManager:
             docs = await to_thread(self._jobs_table.all)
             return [Job.model_validate(doc) for doc in docs]
 
-    async def create_job(self, definition: JobDefinition) -> Job:
+    async def create_job(self, definition: JobDefinition, archive: BinaryIO) -> Job:
         """Create a new Job.
 
         Args:
             definition (JobDefinition): Definition for new job.
+            archive (BinaryIO): Job archive containing the Job's files.
 
         Returns:
             Job: Newly created Job.
@@ -58,6 +61,15 @@ class JobManager:
         async with self._state_mutex:
             job = Job.new(definition=definition)
             await to_thread(self._jobs_table.insert, job.model_dump())
+
+            # store archive on disk
+            job_path = self.data_path / str(job.jid)
+            job_path.mkdir(parents=False, exist_ok=False)
+            job_archive_path = job_path / "job_archive.zip"
+
+            with job_archive_path.open("wb") as f:
+                await to_thread(copyfileobj, archive, f)
+
             return job
 
     async def get(self, jid: int) -> Job:

@@ -1,6 +1,7 @@
 """Tests for server module."""
 
 from http import HTTPStatus
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
@@ -8,9 +9,13 @@ from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
+from mprun import SERVER_ADDRESS_ENV
 from mprun.models import Job, WorkerData
 from mprun.server import DATA_PATH_ENV, server
-from tests.helpers.job_helper import TEST_JOB
+from tests.helpers.job_helper import (
+    TEST_JOB,
+    copy_job_to_test_environment,
+)
 
 
 class TestWorkers:
@@ -24,6 +29,7 @@ class TestWorkers:
             pytest.MonkeyPatch.context() as mp,
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
                 response = client.post("/workers", params={"name": name})
@@ -39,6 +45,7 @@ class TestWorkers:
             pytest.MonkeyPatch.context() as mp,
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
                 for name in names:
@@ -59,6 +66,7 @@ class TestWorkers:
             pytest.MonkeyPatch.context() as mp,
         ):
             mp.setenv(DATA_PATH_ENV, data_dir)
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
                 response = client.post("/workers", params={"name": name})
@@ -78,14 +86,27 @@ class TestJobs:
     def test_create_job(self) -> None:
         """Test jobs creation."""
         with (
-            TemporaryDirectory(delete=True) as data_dir,
+            TemporaryDirectory(delete=True) as test_dir,
             pytest.MonkeyPatch.context() as mp,
         ):
-            mp.setenv(DATA_PATH_ENV, data_dir)
+            directory = Path(test_dir)
+            mp.setenv(DATA_PATH_ENV, test_dir)
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            with TestClient(server) as client:
-                response = client.post("/jobs", json=TEST_JOB.model_dump())
+            job_definition, job_definition_path = copy_job_to_test_environment(
+                directory=directory
+            )
+            archive_path = job_definition.create_archive(job_toml=job_definition_path)
+
+            with TestClient(server) as client, archive_path.open("rb") as archive_file:
+                response = client.post(
+                    "/jobs",
+                    data={"job_definition": TEST_JOB.model_dump_json()},
+                    files={
+                        "archive": ("job_archive.zip", archive_file, "application/zip")
+                    },
+                )
                 assert response.status_code == HTTPStatus.CREATED
                 job = Job.model_validate(response.json())
                 assert job.name == TEST_JOB.name
-                assert job.params == TEST_JOB.params
+                assert job.definition.params == TEST_JOB.params

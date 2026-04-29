@@ -7,7 +7,17 @@ from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
+from pydantic import ValidationError
 
 from mprun.errors import InvalidParametersError, NoSuchJobError, NoSuchWorkerError
 from mprun.job_manager import JobManager
@@ -52,13 +62,20 @@ def get_worker_manager(request: Request) -> WorkerManager:
 
 @server.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
 async def create_job(
-    request: JobDefinition,
+    job_definition: str = Form(...),
+    archive: UploadFile = File(...),
     jm: JobManager = Depends(get_job_manager),
 ) -> Job:
-    """Create a new job from JobCreateRequest and return it."""
+    """Create a new job from multipart form (JobDefinition JSON + archive) and return it."""
     logger.debug("Received job create request")
     try:
-        job = await jm.create_job(request)
+        definition = JobDefinition.model_validate_json(job_definition)
+    except ValidationError as err:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
+        ) from err
+    try:
+        job = await jm.create_job(definition=definition, archive=archive.file)
     except InvalidParametersError as err:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST, detail=str(err)

@@ -6,21 +6,28 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from mprun.job_manager import JobManager
-from mprun.models import JobState, Run
-from tests.helpers.job_helper import TEST_JOB
+from mprun.models import Job, JobState, Run
+from tests.helpers.job_helper import copy_job_to_test_environment
 
 
 @pytest.mark.asyncio
 async def test_create() -> None:
     """Test Job creation."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        data_path = Path(data_dir)
-        manager = JobManager(data_path=data_path)
+    with TemporaryDirectory(delete=True) as test_dir:
+        directory = Path(test_dir)
+        manager = JobManager(data_path=directory)
+
+        job_description, job_description_path = copy_job_to_test_environment(
+            directory=directory
+        )
+        archive_path = job_description.create_archive(job_toml=job_description_path)
 
         all_jobs = await manager.get_all()
         assert not all_jobs
 
-        job = await manager.create_job(definition=TEST_JOB)
+        job: Job
+        with archive_path.open("rb") as f:
+            job = await manager.create_job(definition=job_description, archive=f)
 
         retrieved = await manager.get(jid=job.jid)
         assert job == retrieved
@@ -33,14 +40,21 @@ async def test_create() -> None:
 @pytest.mark.asyncio
 async def test_dispatch() -> None:
     """Test Job dispatching."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        data_path = Path(data_dir)
-        manager = JobManager(data_path=data_path)
+    with TemporaryDirectory(delete=True) as test_dir:
+        directory = Path(test_dir)
+        manager = JobManager(data_path=directory)
 
         dispatched = await manager.dispatch_waiting_run(0)
         assert dispatched is None
 
-        job = await manager.create_job(definition=TEST_JOB)
+        job_description, job_description_path = copy_job_to_test_environment(
+            directory=directory
+        )
+        archive_path = job_description.create_archive(job_toml=job_description_path)
+
+        job: Job
+        with archive_path.open("rb") as f:
+            job = await manager.create_job(definition=job_description, archive=f)
 
         retrieved = await manager.get(jid=job.jid)
         assert retrieved.state == JobState.WAITING

@@ -240,7 +240,7 @@ class JobDefinition(BaseModel):
 
         return files
 
-    def create_archive(self, job_toml: Path) -> None:
+    def create_archive(self, job_toml: Path) -> Path:
         """Create archive for Job.
 
         Tries to create zip archive of all files specified in this JobDefinition.
@@ -248,6 +248,9 @@ class JobDefinition(BaseModel):
 
         Args:
             job_toml (Path): Path to the Job's TOML file. All other Job files need to be located in the same directory.
+
+        Returns:
+            Path: Path of the created archive.
 
         Raises:
             FileNotFoundError: If ``job_toml``, its parent directory, or any referenced file
@@ -278,6 +281,7 @@ class JobDefinition(BaseModel):
                     zf.write(
                         directory / environment_file, environment_file
                     )  # add environment files (if any are specified)
+        return archive_path
 
 
 class Job(BaseModel):
@@ -286,20 +290,19 @@ class Job(BaseModel):
     The Job acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
 
     Attributes:
+        definition (JobDefinition): Job's metadata
         jid (int): Unique identifier of this job. Generated automatically from uuid.uuid4.
                    (Integer representation of a UUID for serialisability)
         name (str): Human readable job name. Does not have to be unique.
         state (JobState): Job's state. See JobState enum for behaviour documentation.
-        params (dict[str, list[TOMLScalar]]): Job's parameters. Each parameter should be a list of discrete TOML-serializable values.
-                                              Will be used to generate runs by computing cross product of parameter lists.
         runs (list[Run]): List of Runs that were generated from parameters.
         waiting_runs (int): Number of Runs that are waiting for dispatch.
     """
 
+    definition: JobDefinition
     jid: int
     name: str
     state: JobState
-    params: dict[str, list[TOMLScalar]]
     runs: list[Run]
     waiting_runs: int
 
@@ -322,7 +325,7 @@ class Job(BaseModel):
         """Create new Job from a JobDefinition.
 
         Args:
-            definition (JobDefinition): Definition of new Job
+            definition (JobDefinition): Definition of new Job.
         """
         jid = uuid4()
         state = JobState.WAITING
@@ -341,10 +344,10 @@ class Job(BaseModel):
             )
 
         return Job(
+            definition=definition,
             jid=jid.int,
             name=definition.name,
             state=state,
-            params=definition.params,
             runs=runs,
             waiting_runs=len(
                 runs,

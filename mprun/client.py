@@ -4,6 +4,7 @@
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from lzma import LZMAError
 from pathlib import Path
 
 from httpx import Client, HTTPStatusError, codes
@@ -132,23 +133,39 @@ def create_job(
         raise Exit(1)
 
     job_definition: JobDefinition
+    archive_path: Path
     try:
         job_definition = JobDefinition.load_toml(
             file_path=job_path, validation_mode=ValidationMode.DATA_AND_FILES
         )
+        archive_path = job_definition.create_archive(job_toml=job_path)
     except OSError as err:
         echo(f"Error reading file: {err}", err=True)
         raise Exit(1) from err
+    except FileNotFoundError as err:
+        echo(f"Error accessing file: {err}", err=True)
+        raise Exit(1) from err
+    except PermissionError as err:
+        echo(f"Error accessing file: {err}", err=True)
+        raise Exit(1) from err
     except ValidationError as err:
         echo(f"Error validating job definition: {err}", err=True)
+        raise Exit(1) from err
+    except LZMAError as err:
+        echo(f"Error compressing archive: {err}", err=True)
         raise Exit(1) from err
 
     echo(f"Creating job with name {job_definition.name}")
 
     try:
-        with _client_factory(base_url) as client:
+        with (
+            archive_path.open("rb") as archive_file,
+            _client_factory(base_url) as client,
+        ):
             resp = client.post(
-                "/jobs", json=job_definition.model_dump()
+                "/jobs",
+                data={"job_definition": job_definition.model_dump_json()},
+                files={"archive": ("job_archive.zip", archive_file, "application/zip")},
             ).raise_for_status()
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)

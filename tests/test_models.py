@@ -1,12 +1,15 @@
 """Tests for models module."""
 
 from pathlib import Path
-from shutil import copytree
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 from mprun.models import Job, JobDefinition, ValidationMode
-from tests.helpers.job_helper import TEST_JOB, TEST_JOB_DIRECTORY, TEST_JOB_FILE
+from tests.helpers.job_helper import (
+    TEST_JOB,
+    TEST_JOB_FILE,
+    copy_job_to_test_environment,
+)
 
 
 def test_job_creation() -> None:
@@ -45,16 +48,12 @@ def test_job_archive() -> None:
     """
     with TemporaryDirectory(delete=True) as test_dir:
         directory = Path(test_dir)
-        copytree(
-            TEST_JOB_DIRECTORY, directory, symlinks=False, dirs_exist_ok=True
-        )  # copy Job files to clean test directory
-        job_definition = JobDefinition.load_toml(
-            directory / "job_definition.toml",
-            validation_mode=ValidationMode.DATA_AND_FILES,
+        job_definition, job_definition_path = copy_job_to_test_environment(
+            directory=directory
         )
-        job_definition.create_archive(directory / "job_definition.toml")
+        archive_path = job_definition.create_archive(job_toml=job_definition_path)
 
-        archive_path = directory / "job_archive.zip"
+        assert archive_path == directory / "job_archive.zip"
         assert archive_path.is_file()
 
         with ZipFile(archive_path, mode="r") as zf:  # check if everything is there
