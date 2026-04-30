@@ -239,7 +239,7 @@ class JobDefinition(BaseModel):
         Raises:
             ValueError: If validation fails.
         """
-        if files is None:  # if no files were given, the nthere's nothing to do
+        if files is None:  # if no files were given, then there's nothing to do
             return None
 
         if not isinstance(
@@ -273,7 +273,7 @@ class JobDefinition(BaseModel):
 
         Raises:
             FileNotFoundError: If ``job_toml``, its parent directory, or any referenced file
-                (``executable``, ``setup_executable``, entries in ``environemnt_files``) does not exist.
+                (``executable``, ``setup_executable``, entries in ``environment_files``) does not exist.
             PermissionError: If the archive destination directory is not writable, or any source
                 file is not readable.
             OSError: For other I/O failures (e.g. disk full) during archive creation or file writes.
@@ -367,21 +367,13 @@ class Job(BaseModel):
         """Compute hash of Job."""
         return hash(self.jid)
 
-    def __eq__(self, other: object) -> bool:
-        """Check if Jobs are equal."""
-        if isinstance(other, Job):
-            return self.jid == other.jid
-        return False
-
     @property
     def active(self) -> bool:
         """Whether this Job is 'active'.
 
         A Job is active if its active_state is either WAITING or RUNNING.
         """
-        return (
-            self.active_state in (ActiveState.WAITING, ActiveState.RUNNING)
-        )
+        return self.active_state in (ActiveState.WAITING, ActiveState.RUNNING)
 
     @property
     def waiting_runs(self) -> list[Run]:
@@ -455,12 +447,6 @@ class Run(BaseModel):
     def __hash__(self) -> int:
         """Compute hash of Run."""
         return hash(self.rid)
-
-    def __eq__(self, other: object) -> bool:
-        """Check if Runs are equal."""
-        if isinstance(other, Run):
-            return self.rid == other.rid
-        return False
 
 
 class WorkerState(StrEnum):
