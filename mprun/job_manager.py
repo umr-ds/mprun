@@ -17,12 +17,18 @@ class JobManager:
     """Manages (creates, deletes, dispatches, etc) Jobs.
 
     Attributes:
-        data_path (Path): Base-path for the data directory. Will be used to store database & job data.
+        _data_path (Path): Base-path for the data directory. Will be used to store database & job data.
+        _db (TinyDB): Database for Job metadata.
+        _state_mutex (Lock): Mutex to prevent concurrent state modification.
+
+        _jobs (dict[Job]): All jobs.
     """
 
-    data_path: Path
+    _data_path: Path
     _db: TinyDB
     _state_mutex: Lock
+
+    _jobs: dict[int, Job]
 
     def __init__(self, data_path: Path) -> None:
         """Initialise JobManager.
@@ -31,13 +37,24 @@ class JobManager:
             data_path (Path): Base-path for the data directory. Will be used to store database & job data.
         """
         data_path.mkdir(parents=True, exist_ok=True)
-        self.data_path = data_path
+        self._data_path = data_path
         self._db = TinyDB(data_path / "db.json")
         self._state_mutex = Lock()
+
+        docs = self._jobs_table.all()
+        jobs = [Job.model_validate(doc) for doc in docs]
+        self._jobs = {job.jid: job for job in jobs}
 
     @property
     def _jobs_table(self) -> Table:
         return self._db.table("jobs")
+
+    async def _update(self, job: Job) -> None:
+        """Update Job's data in database."""
+        update = Query()
+        await to_thread(
+            self._jobs_table.update, job.model_dump(), update.jid == job.jid
+        )
 
     def close(self) -> None:
         """Close database & shut down."""
@@ -76,7 +93,7 @@ class JobManager:
                 definition.validate_archive(archive_path=tmp_archive)
 
                 # if validation successful, store archive permanently
-                job_path = self.data_path / str(job.jid)
+                job_path = self._data_path / str(job.jid)
                 job_path.mkdir(parents=False, exist_ok=False)
                 job_archive = job_path / JOB_ARCHIVE_NAME
 
@@ -85,6 +102,7 @@ class JobManager:
                 )
 
             await to_thread(self._jobs_table.insert, job.model_dump())
+            self._jobs[job.jid] = job
 
             return job
 
@@ -101,11 +119,10 @@ class JobManager:
             NoSuchJobError: If there is no Job with a matching ID.
         """
         async with self._state_mutex:
-            q = Query()
-            doc = await to_thread(self._jobs_table.get, q.jid == jid)
-            if not doc:
+            job = self._jobs.get(jid)
+            if job is None:
                 raise NoSuchJobError(jid=jid)
-            return Job.model_validate(doc)
+            return job
 
     async def dispatch_waiting_run(self, wid: int) -> Run | None:
         """Get a waiting Run.
@@ -120,23 +137,17 @@ class JobManager:
             Run | None: Run-object if a waiting Run is available, None if none available.
         """
         async with self._state_mutex:
-            dispatch_query = Query()
-            dispatchable = await to_thread(
-                self._jobs_table.search, dispatch_query.waiting_runs > 0
-            )
+            dispatchable = [job for job in self._jobs.values() if job.waiting_runs > 0]
 
-            for job_data in dispatchable:
-                job = Job.model_validate(job_data)
+            for job in dispatchable:
                 run = job.dispatch_run()
                 if run is None:
                     continue
 
                 run.wid = wid
 
-                update = Query()
-                await to_thread(
-                    self._jobs_table.update, job.model_dump(), update.jid == job.jid
-                )
+                await self._update(job=job)
+
                 return run
 
             return None

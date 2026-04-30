@@ -36,7 +36,7 @@ async def test_create() -> None:
         assert len(all_jobs) == 1
         assert all_jobs[0] == job
 
-        archive_path = manager.data_path / str(job.jid) / JOB_ARCHIVE_NAME
+        archive_path = manager._data_path / str(job.jid) / JOB_ARCHIVE_NAME
         assert archive_path.is_file()
         job.definition.validate_archive(archive_path=archive_path)
 
