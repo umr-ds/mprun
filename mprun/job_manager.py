@@ -1,16 +1,20 @@
 """Module contains tool to manage Jobs."""
 
+from __future__ import annotations
+
 from asyncio import Lock, to_thread
+from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy, copyfileobj
 from tempfile import TemporaryDirectory
+from types import TracebackType
 from typing import BinaryIO
 
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
 from mprun.errors import NoSuchJobError
-from mprun.models import JOB_ARCHIVE_NAME, Job, JobDefinition, Run
+from mprun.models import JOB_ARCHIVE_NAME, ActiveState, Job, JobDefinition, Run
 
 
 class JobManager:
@@ -21,7 +25,7 @@ class JobManager:
         _db (TinyDB): Database for Job metadata.
         _state_mutex (Lock): Mutex to prevent concurrent state modification.
 
-        _jobs (dict[Job]): All jobs.
+        _jobs (dict[Job]): All active jobs.
     """
 
     _data_path: Path
@@ -29,6 +33,7 @@ class JobManager:
     _state_mutex: Lock
 
     _jobs: dict[int, Job]
+    _pending_dispatches: set[int]
 
     def __init__(self, data_path: Path) -> None:
         """Initialise JobManager.
@@ -43,14 +48,18 @@ class JobManager:
 
         docs = self._jobs_table.all()
         jobs = [Job.model_validate(doc) for doc in docs]
-        self._jobs = {job.jid: job for job in jobs}
+        self._jobs = {job.jid: job for job in jobs if job.active}
+        self._pending_dispatches = set()
 
     @property
     def _jobs_table(self) -> Table:
         return self._db.table("jobs")
 
     async def _update(self, job: Job) -> None:
-        """Update Job's data in database."""
+        """Update Job's data in database.
+
+        *IMPORTANT*: This method is *NOT* thread safe. The caller MUST have locked the manager's state_mutex before calling.
+        """
         update = Query()
         await to_thread(
             self._jobs_table.update, job.model_dump(), update.jid == job.jid
@@ -65,6 +74,10 @@ class JobManager:
         async with self._state_mutex:
             docs = await to_thread(self._jobs_table.all)
             return [Job.model_validate(doc) for doc in docs]
+
+    def get_job_archive(self, job: Job) -> Path:
+        """Gets path to Job's archive."""
+        return self._data_path / str(job.jid) / JOB_ARCHIVE_NAME
 
     async def create_job(self, definition: JobDefinition, archive: BinaryIO) -> Job:
         """Create a new Job.
@@ -124,30 +137,95 @@ class JobManager:
                 raise NoSuchJobError(jid=jid)
             return job
 
-    async def dispatch_waiting_run(self, wid: int) -> Run | None:
+    async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Get a waiting Run.
 
         Manager will check if there are any runs with the 'WAITING' state and return one, if available.
         If dispatchable Run is found, set its state to "RUNNING" and its wid to the provided one.
 
-        Args:
-            wid: ID of Worker that's requesting work.
-
         Returns:
             Run | None: Run-object if a waiting Run is available, None if none available.
         """
         async with self._state_mutex:
-            dispatchable = [job for job in self._jobs.values() if job.waiting_runs > 0]
+            jobs = [job for job in self._jobs.values() if len(job.waiting_runs) > 0]
 
-            for job in dispatchable:
-                run = job.dispatch_run()
-                if run is None:
+            for job in jobs:
+                runs = [
+                    run
+                    for run in job.waiting_runs
+                    if run.rid not in self._pending_dispatches
+                ]
+                if not runs:
                     continue
 
-                run.wid = wid
+                run = runs[0]
+                self._pending_dispatches.add(run.rid)
 
-                await self._update(job=job)
-
-                return run
+                return PendingDispatch(manager=self, job=job, run=run)
 
             return None
+
+    async def commit(self, operation: PendingDispatch) -> None:
+        """Commit a pending operation and modify local state accordingly."""
+        async with self._state_mutex:
+            operation.run.active_state = ActiveState.RUNNING
+            operation.run.wid = operation.wid
+
+            if operation.job.active_state == ActiveState.WAITING:
+                operation.job.active_state = ActiveState.RUNNING
+
+            await self._update(job=operation.job)
+
+            self._pending_dispatches.remove(operation.run.rid)
+
+    async def cancel(self, operation: PendingDispatch) -> None:
+        """Cancel a pending operation."""
+        self._pending_dispatches.remove(operation.run.rid)
+
+
+@dataclass
+class PendingDispatch:
+    """Represents a Run that has been marked for dispatching, but not assigned to a worker.
+
+    Attributes:
+        manager (JobManager): Responsible Job Manager.
+        job (Job): The Run's parent Job.
+        run (Run): The actual Run.
+        wid (int | None): None if no worker has been assigned. Once assigned, the Worker's ID.
+        _finalised (bool): Whether the dispatch has been finalised.
+    """
+
+    manager: JobManager
+    job: Job
+    run: Run
+    wid: int | None = None
+    _finalised: bool = False
+
+    async def __aenter__(self) -> PendingDispatch:
+        """Enter context manager."""
+        return self
+
+    async def __aexit__(
+        self,
+        type_: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        """Exit context manager.
+
+        If the dispatch was finalised, we commit it, otherwise we cancel it.
+        """
+        if type_ is None and self._finalised:
+            await self.manager.commit(self)
+        else:
+            await self.manager.cancel(self)
+        return None
+
+    def finalise(self, wid: int) -> None:
+        """Finalise pending dispatch.
+
+        Args:
+            wid (int): ID of the worker that the Run is dispatched to.
+        """
+        self.wid = wid
+        self._finalised = True

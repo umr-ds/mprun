@@ -80,6 +80,7 @@ async def create_job(
         raise HTTPException(
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
         ) from err
+
     try:
         job = await jm.create_job(definition=definition, archive=archive.file)
     except InvalidParametersError as err:
@@ -148,20 +149,16 @@ async def get_run_for_worker(
 ) -> Run | Response:
     """Workers query this endpoint to get a run to execute."""
     try:
-        _ = await wm.get(wid=wid)
+        pending = await jm.dispatch_waiting_run()
+        if pending is None:
+            return Response(status_code=HTTPStatus.NO_CONTENT)
+
+        async with pending:
+            await wm.assign_run(wid=wid, rid=pending.run.rid)
+            pending.finalise(wid=wid)
+            return pending.run
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
-
-    dispatched_run = await jm.dispatch_waiting_run(wid=wid)
-    if dispatched_run is None:
-        return Response(status_code=HTTPStatus.NO_CONTENT)
-
-    try:
-        await wm.assign_run(wid=wid, rid=dispatched_run.rid)
-    except NoSuchWorkerError as err:
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
-
-    return dispatched_run
 
 
 @server.get("/workers/{wid}", response_model=WorkerData)

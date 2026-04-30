@@ -350,7 +350,6 @@ class Job(BaseModel):
         active_state (ActiveState): Job's active state. See ActiveState enum for behaviour documentation.
         success_state (SuccessState): Job's success state. See SuccessState enum for behaviour documentation.
         runs (list[Run]): List of Runs that were generated from parameters.
-        waiting_runs (int): Number of Runs that are waiting for dispatch.
     """
 
     definition: JobDefinition
@@ -359,7 +358,6 @@ class Job(BaseModel):
     active_state: ActiveState
     success_state: SuccessState
     runs: list[Run]
-    waiting_runs: int
 
     def __str__(self) -> str:
         """Job's string representation."""
@@ -374,6 +372,21 @@ class Job(BaseModel):
         if isinstance(other, Job):
             return self.jid == other.jid
         return False
+
+    @property
+    def active(self) -> bool:
+        """Whether this Job is 'active'.
+
+        A Job is active if its active_state is either WAITING or RUNNING.
+        """
+        return (
+            self.active_state in (ActiveState.WAITING, ActiveState.RUNNING)
+        )
+
+    @property
+    def waiting_runs(self) -> list[Run]:
+        """Subset of Runs that have not been dispatched."""
+        return [run for run in self.runs if run.active_state == ActiveState.WAITING]
 
     @classmethod
     def new(cls, definition: JobDefinition) -> Job:
@@ -407,31 +420,7 @@ class Job(BaseModel):
             active_state=active_state,
             success_state=success_state,
             runs=runs,
-            waiting_runs=len(
-                runs,
-            ),
         )
-
-    def dispatch_run(self) -> Run | None:
-        """Dispatches waiting Run.
-
-        Checks this Job's Run to see if there is at least one with state "WAITING".
-        If more than one waiting Run exists, we do not guarantee the order in which they are dispatched.
-
-        Returns:
-            Run | None: Run-object if a waiting Run exists, None otherwise.
-        """
-        waiting = [run for run in self.runs if run.active_state == ActiveState.WAITING]
-        if not waiting:
-            return None
-
-        dispatched = waiting[0]
-        dispatched.active_state = ActiveState.RUNNING
-        self.waiting_runs -= 1
-        if self.active_state == ActiveState.WAITING:
-            self.active_state = ActiveState.RUNNING
-
-        return dispatched
 
 
 class Run(BaseModel):
