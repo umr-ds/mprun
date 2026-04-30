@@ -33,20 +33,20 @@ _client_factory: Callable[[str | None], AbstractContextManager[Client]] = (
 
 
 def _print_jobs(jobs: list[Job]) -> None:
-    table = Table("Name", "ID", "State")
+    table = Table("Name", "ID", "Active", "Success")
     for job in jobs:
-        table.add_row(job.name, str(job.jid), job.state)
+        table.add_row(job.name, str(job.jid), job.active_state, job.success_state)
     console.print(table)
 
 
 def _print_job(job: Job) -> None:
-    table = Table("Name", "ID", "State", title="Job")
-    table.add_row(job.name, str(job.jid), job.state)
+    table = Table("Name", "ID", "Active", "Success", title="Job")
+    table.add_row(job.name, str(job.jid), job.active_state, job.success_state)
     console.print(table)
 
-    table = Table("Name", "State", title="Runs")
+    table = Table("Name", "Active", "Success", title="Runs")
     for run in job.runs:
-        table.add_row(run.name, run.state)
+        table.add_row(run.name, run.active_state, run.success_state)
     console.print(table)
 
 

@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from mprun.job_manager import JobManager
-from mprun.models import JOB_ARCHIVE_NAME, Job, JobState, Run
+from mprun.models import JOB_ARCHIVE_NAME, ActiveState, Job, Run
 from tests.helpers.job_helper import copy_job_to_test_environment
 
 
@@ -61,19 +61,19 @@ async def test_dispatch() -> None:
             job = await manager.create_job(definition=job_description, archive=f)
 
         retrieved = await manager.get(jid=job.jid)
-        assert retrieved.state == JobState.WAITING
+        assert retrieved.active_state == ActiveState.WAITING
 
         dispatched = await manager.dispatch_waiting_run(wid=0)
         assert isinstance(dispatched, Run)
         assert dispatched.jid == job.jid
 
         retrieved = await manager.get(jid=job.jid)
-        assert retrieved.state == JobState.RUNNING
+        assert retrieved.active_state == ActiveState.RUNNING
 
         found = False
         for run in retrieved.runs:
             if run == dispatched:
                 found = True
-                assert run.state == JobState.RUNNING
+                assert run.active_state == ActiveState.RUNNING
                 break
         assert found

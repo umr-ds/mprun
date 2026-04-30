@@ -53,25 +53,41 @@ def _expand_parameters(
     return expanded
 
 
-class JobState(StrEnum):
-    """Possible states for both Jobs and Runs.
+class ActiveState(StrEnum):
+    """Possible active states for both Jobs and Runs.
 
     Meaning for Run:
         WAITING: Run has not been dispatched.
         RUNNING: Run has been dispatched, has not finished.
-        FINISHED: Run has finished without error.
-        FAILED: Run has finished with an error.
+        FINISHED: Run has finished.
 
     Meaning for Job:
         WAITING: All runs are waiting.
         RUNNING: At least one run is running.
-        FINISHED: All runs have finished without error.
-        FAILED: At least one run has finished with an error.
+        FINISHED: All runs have finished.
     """
 
     WAITING = "WAITING"
     RUNNING = "RUNNING"
     FINISHED = "FINISHED"
+
+
+class SuccessState(StrEnum):
+    """Possible success states for Jobs and Runs.
+
+    Meaning for Runs:
+        PENDING: This Run has not finished
+        SUCCESS: This Run has finished without error.
+        FAILED: This Run has finished with an error.
+
+    Meaning for Jobs:
+        PENDING: There are still Runs with state PENDING, no Runs with state FAILED
+        SUCCESS: All Runs have state SUCCESS
+        FAILED: At least one Run has state FAILED
+    """
+
+    PENDING = "PENDING"
+    SUCCESS = "SUCCESS"
     FAILED = "FAILED"
 
 
@@ -331,7 +347,8 @@ class Job(BaseModel):
         jid (int): Unique identifier of this job. Generated automatically from uuid.uuid4.
                    (Integer representation of a UUID for serialisability)
         name (str): Human readable job name. Does not have to be unique.
-        state (JobState): Job's state. See JobState enum for behaviour documentation.
+        active_state (ActiveState): Job's active state. See ActiveState enum for behaviour documentation.
+        success_state (SuccessState): Job's success state. See SuccessState enum for behaviour documentation.
         runs (list[Run]): List of Runs that were generated from parameters.
         waiting_runs (int): Number of Runs that are waiting for dispatch.
     """
@@ -339,7 +356,8 @@ class Job(BaseModel):
     definition: JobDefinition
     jid: int
     name: str
-    state: JobState
+    active_state: ActiveState
+    success_state: SuccessState
     runs: list[Run]
     waiting_runs: int
 
@@ -365,7 +383,8 @@ class Job(BaseModel):
             definition (JobDefinition): Definition of new Job.
         """
         jid = uuid4()
-        state = JobState.WAITING
+        active_state = ActiveState.WAITING
+        success_state = SuccessState.PENDING
         runs: list[Run] = []
         expanded = _expand_parameters(definition.params)
         for index, param_set in enumerate(expanded):
@@ -375,7 +394,8 @@ class Job(BaseModel):
                     rid=uuid5(namespace=jid, name=bytes(index)).int,
                     index=index,
                     name=f"{definition.name}-{index}",
-                    state=JobState.WAITING,
+                    active_state=active_state,
+                    success_state=success_state,
                     params=param_set,
                 ),
             )
@@ -384,7 +404,8 @@ class Job(BaseModel):
             definition=definition,
             jid=jid.int,
             name=definition.name,
-            state=state,
+            active_state=active_state,
+            success_state=success_state,
             runs=runs,
             waiting_runs=len(
                 runs,
@@ -400,15 +421,15 @@ class Job(BaseModel):
         Returns:
             Run | None: Run-object if a waiting Run exists, None otherwise.
         """
-        waiting = [run for run in self.runs if run.state == JobState.WAITING]
+        waiting = [run for run in self.runs if run.active_state == ActiveState.WAITING]
         if not waiting:
             return None
 
         dispatched = waiting[0]
-        dispatched.state = JobState.RUNNING
+        dispatched.active_state = ActiveState.RUNNING
         self.waiting_runs -= 1
-        if self.state == JobState.WAITING:
-            self.state = JobState.RUNNING
+        if self.active_state == ActiveState.WAITING:
+            self.active_state = ActiveState.RUNNING
 
         return dispatched
 
@@ -424,7 +445,8 @@ class Run(BaseModel):
         wid (int | None): If this Run has been dispatched to a worker, this attribute contains the worker's ID.
                           None if Run has not yet been dispatched.
         name (str): Human-readable name. Generated using {job_name}-{index}.
-        state (JobState): Run's state. See JobState enum for behaviour documentation.
+        active_state (ActiveState): Run's active state. See active_state enum for behaviour documentation.
+        success_state (SuccessState): Run's success state. See SuccessState enum for behaviour documentation.
         params (dict[str, TOMLScalar]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
     """
 
@@ -433,7 +455,8 @@ class Run(BaseModel):
     rid: int
     wid: int | None = None
     name: str
-    state: JobState
+    active_state: ActiveState
+    success_state: SuccessState
     params: dict[str, TOMLScalar]
 
     def __str__(self) -> str:
