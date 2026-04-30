@@ -65,8 +65,8 @@ class WorkerManager:
 
             return self.workers[wid]
 
-    async def checkin(self, wid: int) -> None:
-        """Perform worker checkin.
+    async def check_in(self, wid: int) -> None:
+        """Perform worker check in.
 
         Sets workers 'last_checkin' to current time.
 
@@ -80,7 +80,7 @@ class WorkerManager:
             if wid not in self.workers:
                 raise NoSuchWorkerError(wid=wid)
 
-            self.workers[wid].last_checkin = time()
+            self.workers[wid].last_check_in = time()
 
     async def assign_run(self, wid: int, rid: int) -> None:
         """Assign Run to worker.

@@ -221,11 +221,15 @@ class PendingDispatch:
             await self.manager.cancel(self)
         return None
 
-    def finalise(self, wid: int) -> None:
-        """Finalise pending dispatch.
+    def finalise(self, wid: int) -> Path:
+        """Finalise pending dispatch and return path to parent Job's archive.
 
         Args:
             wid (int): ID of the worker that the Run is dispatched to.
+
+        Returns:
+            Path: Filesystem path to the Job's archive.
         """
         self.wid = wid
         self._finalised = True
+        return self.manager.get_job_archive(job=self.job)

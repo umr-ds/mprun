@@ -1,5 +1,6 @@
 """Tests for worker module."""
 
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
@@ -34,9 +35,10 @@ def test_checkin(name: str) -> None:
         TemporaryDirectory(delete=True) as data_dir,
         pytest.MonkeyPatch.context() as mp,
     ):
-        mp.setenv(DATA_PATH_ENV, data_dir)
+        mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
 
         with TestClient(server) as client:
+            home_dir = Path(data_dir) / "worker"
             metadata = Worker.register(client=client, name=name)
-            worker = Worker(client=client, metadata=metadata)
-            worker.checkin()
+            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+            worker.check_in()

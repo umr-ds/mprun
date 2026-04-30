@@ -395,6 +395,7 @@ class Job(BaseModel):
         for index, param_set in enumerate(expanded):
             runs.append(
                 Run(
+                    definition=definition,
                     jid=jid.int,
                     rid=uuid5(namespace=jid, name=bytes(index)).int,
                     index=index,
@@ -431,6 +432,7 @@ class Run(BaseModel):
         params (dict[str, TOMLScalar]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
     """
 
+    definition: JobDefinition
     jid: int
     index: int
     rid: int
@@ -475,7 +477,7 @@ class WorkerData(BaseModel):
     wid: int
     name: str
     state: WorkerState
-    last_checkin: float
+    last_check_in: float
     run: int | None = None
 
     @classmethod
@@ -486,5 +488,5 @@ class WorkerData(BaseModel):
             name (str): Human readable name. Does not have to be unique, but is encouraged to be.
         """
         return WorkerData(
-            wid=uuid4().int, name=name, state=WorkerState.IDLE, last_checkin=time()
+            wid=uuid4().int, name=name, state=WorkerState.IDLE, last_check_in=time()
         )

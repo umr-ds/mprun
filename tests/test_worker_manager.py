@@ -30,7 +30,7 @@ async def test_worker_checkin(name: str) -> None:
     manager = WorkerManager()
     worker = await manager.register(name=name)
 
-    checkin_time = worker.last_checkin
-    await manager.checkin(worker.wid)
+    checkin_time = worker.last_check_in
+    await manager.check_in(worker.wid)
 
-    assert worker.last_checkin > checkin_time
+    assert worker.last_check_in > checkin_time

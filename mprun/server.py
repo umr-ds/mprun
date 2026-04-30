@@ -18,6 +18,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from mprun.errors import (
@@ -27,7 +28,7 @@ from mprun.errors import (
     NoSuchWorkerError,
 )
 from mprun.job_manager import JobManager
-from mprun.models import Job, JobDefinition, Run, WorkerData
+from mprun.models import Job, JobDefinition, WorkerData
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -146,8 +147,12 @@ async def get_run_for_worker(
     wid: int,
     jm: JobManager = Depends(get_job_manager),
     wm: WorkerManager = Depends(get_worker_manager),
-) -> Run | Response:
-    """Workers query this endpoint to get a run to execute."""
+) -> Response:
+    """Workers query this endpoint to get a run to execute.
+
+    Returns the Job archive as the response body (application/zip) with the
+    Run object serialised as JSON in the `X-Run` header.
+    """
     try:
         pending = await jm.dispatch_waiting_run()
         if pending is None:
@@ -155,8 +160,12 @@ async def get_run_for_worker(
 
         async with pending:
             await wm.assign_run(wid=wid, rid=pending.run.rid)
-            pending.finalise(wid=wid)
-            return pending.run
+            archive_path = pending.finalise(wid=wid)
+            return FileResponse(
+                path=archive_path,
+                media_type="application/zip",
+                headers={"X-Run": pending.run.model_dump_json()},
+            )
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
@@ -174,14 +183,14 @@ async def get_worker(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/workers/checkin/{wid}")
-async def checkin_worker(
+@server.post("/workers/check_in/{wid}")
+async def check_in_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:
     """Endpoint to perform worker checkin."""
     logger.debug(f"Received worker checkin for id {wid}")
     try:
-        await wm.checkin(wid=wid)
+        await wm.check_in(wid=wid)
         return Response(status_code=HTTPStatus.OK)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
