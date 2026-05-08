@@ -352,7 +352,7 @@ dev = [
     { name = "pre-commit", specifier = "~=4.6.0" },
     { name = "pytest", specifier = "~=9.0.3" },
     { name = "pytest-asyncio", specifier = "~=1.3.0" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-cov", specifier = "~=7.1.0" },
     { name = "ruff", specifier = "~=0.15.12" },
     { name = "ty", specifier = "~=0.0.32" },
     { name = "vermin", specifier = "~=1.8.0" },

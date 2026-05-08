@@ -2,21 +2,24 @@
 
 """Module contains worker application."""
 
+from __future__ import annotations
+
+import logging
 from http import HTTPStatus
-from logging import getLogger
 from os import getenv
 from pathlib import Path
 from shutil import copy
-from sys import exit as goodbye
 from tempfile import TemporaryDirectory
 from time import sleep, time
 
 from httpx import Client, HTTPStatusError
+from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
 from mprun.models import JOB_ARCHIVE_NAME, Run, WorkerData
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
+cli = Typer()
 WORKER_NAME_ENV = "MPRUN_WORKER_NAME"
 WORKER_HOME_DIR = "MPRUN_WORKER_DIRECTORY"
 
@@ -66,6 +69,20 @@ class Worker:
         response.raise_for_status()
 
         return WorkerData.model_validate(response.json())
+
+    @classmethod
+    def init(cls, server_address: str, name: str, home_directory: Path) -> Worker:
+        """Initialise worker.
+
+        Will attempt to register worker with server.
+        """
+        if not server_address.startswith("http://"):
+            server_address = f"http://{server_address}"
+
+        client = Client(base_url=server_address)
+        meta_data = Worker.register(client=client, name=name)
+
+        return cls(http_client=client, meta_data=meta_data, home_dir=home_directory)
 
     def check_in(self) -> None:
         """Perform check in with server.
@@ -134,36 +151,37 @@ class Worker:
             sleep(30)
 
 
-def main() -> None:
+@cli.command()
+def main(
+    verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
+) -> None:
     """Run worker."""
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=log_level)
+
     server_address = getenv(SERVER_ADDRESS_ENV)
     if server_address is None:
         logger.fatal(f"Environment variable {SERVER_ADDRESS_ENV} not set!")
-        goodbye(1)
-
-    if not server_address.startswith("http://"):
-        server_address = f"http://{server_address}"
-
-    client = Client(base_url=server_address)
+        raise Exit(1)
 
     name = getenv(WORKER_NAME_ENV)
     if name is None:
         logger.fatal(f"Environment variable {WORKER_NAME_ENV} not set!")
-        goodbye(1)
+        raise Exit(1)
 
     home_directory = getenv(WORKER_HOME_DIR)
     if home_directory is None:
         logger.fatal(f"Environment variable {WORKER_HOME_DIR} not set!")
-        goodbye(1)
+        raise Exit(1)
     home_directory = Path(home_directory)
 
     try:
-        meta_data = Worker.register(client=client, name=name)
+        worker = Worker.init(
+            server_address=server_address, name=name, home_directory=home_directory
+        )
     except HTTPStatusError as err:
         logger.fatal("Worker registration failed: %s", err, exc_info=True)
-        goodbye(1)
-
-    worker = Worker(http_client=client, meta_data=meta_data, home_dir=home_directory)
+        raise Exit(1) from err
 
     worker.run()
 

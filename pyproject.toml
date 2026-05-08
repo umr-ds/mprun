@@ -59,7 +59,7 @@ dev = [
     "pytest-asyncio~=1.3.0",
     "hypothesis~=6.152.3",
     "vermin~=1.8.0",
-    "pytest-cov>=7.1.0",
+    "pytest-cov~=7.1.0",
 ]
 
 [project.urls]
@@ -68,7 +68,7 @@ Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 [project.scripts]
 mprun_client = "mprun.client:client"
 mprun_server = "mprun.server:cli"
-mprun_worker = "mprun.worker:main"
+mprun_worker = "mprun.worker:cli"
 
 [tool.ruff]
 exclude = [
@@ -161,6 +161,9 @@ ignore = [
     "FBT", # that's just how CLI flags work...
 ]
 "mprun/server.py" = [
+    "FBT", # that's just how CLI flags work...
+]
+"mprun/worker.py" = [
     "FBT", # that's just how CLI flags work...
 ]
 
