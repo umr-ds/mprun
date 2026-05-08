@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 """Module contains server application."""
 
 import logging
@@ -8,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 from zipfile import BadZipFile
 
+import uvicorn
 from fastapi import (
     Depends,
     FastAPI,
@@ -20,6 +23,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from typer import Option, Typer
 
 from mprun.errors import (
     ArchiveValidationError,
@@ -55,6 +59,7 @@ server = FastAPI(
     version="0.0.1",
     lifespan=lifespan,
 )
+cli = Typer()
 
 
 def get_job_manager(request: Request) -> JobManager:
@@ -194,3 +199,16 @@ async def check_in_worker(
         return Response(status_code=HTTPStatus.OK)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@cli.command()
+def main(
+    host: str = Option("127.0.0.1", help="Bind host"),
+    port: int = Option(8000, help="Bind port"),
+) -> None:
+    """Start the mprun server."""
+    uvicorn.run("mprun.server:server", host=host, port=port)
+
+
+if __name__ == "__main__":
+    cli()

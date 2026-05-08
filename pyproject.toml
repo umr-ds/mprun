@@ -67,6 +67,7 @@ Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 
 [project.scripts]
 mprun_client = "mprun.client:client"
+mprun_server = "mprun.server:cli"
 mprun_worker = "mprun.worker:main"
 
 [tool.ruff]
