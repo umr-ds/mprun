@@ -160,6 +160,9 @@ ignore = [
 "mprun/client.py" = [
     "FBT", # that's just how CLI flags work...
 ]
+"mprun/server.py" = [
+    "FBT", # that's just how CLI flags work...
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

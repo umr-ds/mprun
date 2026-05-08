@@ -205,9 +205,17 @@ async def check_in_worker(
 def main(
     host: str = Option("127.0.0.1", help="Bind host"),
     port: int = Option(8000, help="Bind port"),
+    verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
 ) -> None:
     """Start the mprun server."""
-    uvicorn.run("mprun.server:server", host=host, port=port)
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=log_level)
+    uvicorn.run(
+        "mprun.server:server",
+        host=host,
+        port=port,
+        log_level=logging.getLevelName(log_level).lower(),
+    )
 
 
 if __name__ == "__main__":
