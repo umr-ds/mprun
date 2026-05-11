@@ -71,6 +71,9 @@ mprun_client = "mprun.client:client"
 mprun_server = "mprun.server:cli"
 mprun_worker = "mprun.worker:cli"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.ruff]
 exclude = [
     ".bzr",

@@ -4,17 +4,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.models import WorkerData
-from mprun.server import DATA_PATH_ENV, server
+from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import Worker
 
 
+@pytest.mark.asyncio
 @given(name=st.text())
-def test_register(name: str) -> None:
+async def test_register(name: str) -> None:
     """Test worker registration."""
     with (
         TemporaryDirectory(delete=True) as data_dir,
@@ -22,14 +23,20 @@ def test_register(name: str) -> None:
     ):
         mp.setenv(DATA_PATH_ENV, data_dir)
 
-        with TestClient(server) as client:
-            worker = Worker.register(client=client, name=name)
+        async with (
+            lifespan(server),
+            AsyncClient(
+                transport=ASGITransport(app=server), base_url="http://test"
+            ) as client,
+        ):
+            worker = await Worker.register(client=client, name=name)
             assert isinstance(worker, WorkerData)
             assert worker.name == name
 
 
+@pytest.mark.asyncio
 @given(name=st.text())
-def test_checkin(name: str) -> None:
+async def test_checkin(name: str) -> None:
     """Test worker checkin."""
     with (
         TemporaryDirectory(delete=True) as data_dir,
@@ -37,8 +44,13 @@ def test_checkin(name: str) -> None:
     ):
         mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
 
-        with TestClient(server) as client:
+        async with (
+            lifespan(server),
+            AsyncClient(
+                transport=ASGITransport(app=server), base_url="http://test"
+            ) as client,
+        ):
             home_dir = Path(data_dir) / "worker"
-            metadata = Worker.register(client=client, name=name)
+            metadata = await Worker.register(client=client, name=name)
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
-            worker.check_in()
+            await worker.check_in()
