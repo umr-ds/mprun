@@ -1,5 +1,5 @@
 [vermin]
-targets = 3.12-
+targets = 3.13-
 show_tips = no
 pessimistic = yes
 parse_comments = no
