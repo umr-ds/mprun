@@ -5,72 +5,51 @@ Will scan the entire parameter-space.
 
 ## Installation
 
-Install project & common dependencies via `pip`
+Install the base package plus the dependency group for your role (`server`, `worker`, or `client`):
 
 ```bash
-pip install -e .
-```
-then, depending on which role (`server`, `worker`, `client`) you want to run, install the corresponding dependency group:
+# with uv
+uv sync --group server   # or --group worker / --group client
 
-```bash
-pip install --group server .
-pip install --group worker .
-pip install --group client .
-```
-
-For development, install the `devel` dependencies:
-
-```bash
-pip install --group devel .
-```
-
-and initialise `pre-commit`
-
-```bash
-pre-commit
+# with pip
+pip install --group server .   # or --group worker / --group client
 ```
 
 ## Running the program
 
 ### Server
 
-The server can be run via
-
 ```bash
-uvicorn mprun.server:app
+mprun_server [--host HOST] [--port PORT] [-v] # (package entrypoint)
 ```
 
-the server is configured via environment variables:
+Default: `127.0.0.1:8000`. Configured via environment variables:
 
-| Variable               | Effect                                                               |
-|:-----------------------|:---------------------------------------------------------------------|
-| `MPRUN_SERVER_ADDRESS` | Address that the server should bind itself to                        |
-| `MPRUN_DATA_PATH`      | Directory where the server should keep its database / blob directory |
+| Variable          | Effect                                            | Default     |
+|:------------------|:--------------------------------------------------|:------------|
+| `MPRUN_DATA_PATH` | Directory for database / blob storage             | `~/.mprun`  |
 
 ### Worker
 
-The woker can be run via
-
 ```bash
-mprun_worker #(package entrypoint)
+mprun_worker [-v] # (package entrypoint)
 ```
 
-the worker is also configured via environment variables:
+Configured via environment variables (all required):
 
-| Variable                | Effect                                |
-|:------------------------|:--------------------------------------|
-| `MPRUN_SERVER_ADDRESS`  | Address of the server                 |
-| `MPRUN_WORKER_NAME`     | (Human-readable) Name for this worker |
+| Variable                 | Effect                              |
+|:-------------------------|:------------------------------------|
+| `MPRUN_SERVER_ADDRESS`   | Address of the server               |
+| `MPRUN_WORKER_NAME`      | Human-readable name for this worker |
+| `MPRUN_WORKER_DIRECTORY` | Working directory for run execution |
 
 ### Client
 
-The client can be run via
-
 ```bash
-mprun_client #(package entrypoint)
+mprun_client [list|get|create] # (package entrypoint)
 ```
 
-for cli arguments, see `mprun_client --help`
+See `mprun_client --help` for all options.
 
 ## Job creation
 
@@ -95,12 +74,14 @@ While you are, of course, free to use whatever toolchain you want, we recommend 
 After checking out the project, run 
 
 ```bash
-uv sync --all-groups
+uv sync --all-groups   # creates .venv — prefix commands with `uv run`, don't use .venv directly
+pre-commit install     # install hooks (runs ruff + ty + vermin before each commit)
+uv run pytest          # tests
+uv run ruff check      # lint
+uv run ruff format     # format
+uv run ty check        # type check (Astral `ty`)
+uv run vermin .        # verify Python >= 3.12
 ```
 
-to install the project & its dependencies.
-While this step also creates a `.venv`, don't use it directly, but rather prefix commands with `uv run`.
-
-Please install & setup [pre-commit](https://pre-commit.com/) with the provided hooks.
 The CI-pipeline runs all the same checks, so check before committing.
 The CI-pipeline *also* runs all the tests, so make sure those pass as well.
