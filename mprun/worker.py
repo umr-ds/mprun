@@ -139,7 +139,7 @@ class Worker:
             with TemporaryDirectory(delete=True) as archive_dir:
                 archive_path = Path(archive_dir) / JOB_ARCHIVE_NAME
                 with archive_path.open("wb") as f:
-                    for chunk in response.iter_bytes():
+                    async for chunk in response.aiter_bytes():
                         await to_thread(f.write, chunk)
                 await to_thread(
                     run.definition.validate_archive, archive_path=archive_path
