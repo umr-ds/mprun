@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio.subprocess
 import logging
 from asyncio import Lock, Task, create_task, sleep, to_thread
 from http import HTTPStatus
-from os import getenv
+from os import environ, getenv
 from pathlib import Path
-from shutil import copy
+from shutil import copy, copytree, unpack_archive
 from tempfile import TemporaryDirectory
 from time import time
 
@@ -18,7 +19,13 @@ from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.models import JOB_ARCHIVE_NAME, Run, WorkerData
+from mprun.errors import NoRunError
+from mprun.models import (
+    JOB_ARCHIVE_NAME,
+    Run,
+    SuccessState,
+    WorkerData,
+)
 
 logger = logging.getLogger(__name__)
 cli = Typer()
@@ -110,7 +117,10 @@ class Worker:
             async with self._state_mutex:
                 if self.working is None:
                     try:
-                        await self.get_work()
+                        run = await self.get_work()
+                        if run is None:
+                            continue
+                        self.working = run
                     except HTTPStatusError as err:
                         logger.error(
                             "Error performing checkin with server: %s",
@@ -118,8 +128,12 @@ class Worker:
                             exc_info=True,
                         )
                         continue
+                    state = await self.execute_run()
+                    self.working.success_state = state
+                    await self.upload_results()
+                    self.working = None
 
-    async def get_work(self) -> None:
+    async def get_work(self) -> Run | None:
         """Query the server for work.
 
         Streams the Job archive from the server into a temporary directory and
@@ -142,7 +156,7 @@ class Worker:
 
             if response.status_code == HTTPStatus.NO_CONTENT:
                 logger.debug("Server has no work for us.")
-                return
+                return None
 
             run = Run.model_validate_json(response.headers["X-Run"], strict=True)
             logger.debug(f"Received run: {run.rid}")
@@ -162,7 +176,104 @@ class Worker:
                 logger.debug("Archive validated successfully, saving it for execution")
                 await to_thread(copy, archive_path, self.archive_path)
 
-        self.working = run
+        return run
+
+    async def execute_run(self) -> SuccessState:
+        """Execute run (asynchronously).
+
+        If any exist, copy environment files to their specified locations.
+        Then, if it exists, run the setup executable.
+        Then, run the main executable.
+
+        Returns:
+            SuccessState: SUCCESS if all executables exited with status 0. FAILED otherwise
+        """
+        if self.working is None:
+            raise NoRunError
+
+        logger.info(f"Executing Run {self.working.rid}")
+        with TemporaryDirectory(delete=True) as exec_dir:
+            directory = Path(exec_dir)
+            await to_thread(
+                unpack_archive,
+                filename=self.archive_path,
+                extract_dir=directory,
+                format="zip",
+            )
+
+            env = environ.copy()
+            if self.working.definition.environment_variables is not None:
+                env.update(self.working.definition.environment_variables)
+
+            if self.working.definition.environment_files is not None:
+                logger.debug("Copying environment files to destinations")
+                for (
+                    env_file,
+                    destination,
+                ) in self.working.definition.environment_files.items():
+                    source = directory / env_file
+                    logger.debug(f"Copying {source} to {destination}")
+                    if source.is_file():
+                        await to_thread(copy, source, destination)
+                    elif source.is_dir():
+                        await to_thread(
+                            copytree, source, destination, dirs_exist_ok=True
+                        )
+
+            if self.working.definition.setup_executable is not None:
+                logger.debug("Running setup executable")
+                setup_stdout_path = directory / "stdout.setup"
+                setup_stderr_path = directory / "stderr.setup"
+                program = directory / self.working.definition.setup_executable
+                with (
+                    setup_stdout_path.open("wb") as setup_stdout_file,
+                    setup_stderr_path.open("wb") as setup_stderr_file,
+                ):
+                    process = await asyncio.subprocess.create_subprocess_exec(
+                        program,
+                        shell=False,
+                        stdout=setup_stdout_file,
+                        stderr=setup_stderr_file,
+                        cwd=directory,
+                        env=self.working.definition.environment_variables,
+                    )
+                    await process.wait()
+                    if process.returncode != 0:
+                        await self.collect_results(directory=directory)
+                        return SuccessState.FAILED
+
+            stdout_path = directory / "stdout"
+            stderr_path = directory / "stderr"
+            args = [
+                directory / self.working.definition.executable,
+                *self.working.assemble_args(),
+            ]
+            logger.debug("Running main executable")
+            with (
+                stdout_path.open("wb") as stdout_file,
+                stderr_path.open("wb") as stderr_file,
+            ):
+                process = await asyncio.subprocess.create_subprocess_exec(
+                    *args,
+                    shell=False,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    cwd=directory,
+                    env=self.working.definition.environment_variables,
+                )
+                await process.wait()
+                await self.collect_results(directory=directory)
+                if process.returncode == 0:
+                    return SuccessState.SUCCESS
+                return SuccessState.FAILED
+
+    async def collect_results(self, directory: Path) -> None:
+        """Collect results from Job execution."""
+        # TODO: collect results
+
+    async def upload_results(self) -> None:
+        """Upload Run results to server."""
+        # TODO: upload results
 
     async def run(self) -> None:
         """Main loop for worker.

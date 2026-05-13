@@ -29,6 +29,20 @@ class InvalidParametersError(ValueError):
         return f"Job parameters invalid! Reason: {self.reason}"
 
 
+dataclass(frozen=True)
+
+
+class NoRunError(AttributeError):
+    """Raised when Worker tries to execute a Run, but has no run assigned.
+
+    This should never happen!
+    """
+
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return "There is no run!"
+
+
 @dataclass(frozen=True)
 class NoSuchJobError(LookupError):
     """Raised when trying to retrieve a Job that does not exist.

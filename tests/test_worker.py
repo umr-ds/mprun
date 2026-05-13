@@ -103,6 +103,6 @@ async def test_get_run(name: str) -> None:
                 response.raise_for_status()
 
             # now try getting work again
-            await worker.get_work()
-            assert worker.working is not None
+            run = await worker.get_work()
+            assert run is not None
             assert worker.archive_path.is_file(follow_symlinks=False)

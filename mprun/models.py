@@ -19,6 +19,7 @@ type TOMLScalar = str | int | float | bool  # TOML-serialisable types for Job pa
 
 JOB_DEFINITION_NAME = "job_definition.toml"
 JOB_ARCHIVE_NAME = "job_archive.zip"
+RESULTS_ARCHIVE_NAME = "results.zip"
 
 
 def _expand_parameters(
@@ -449,6 +450,15 @@ class Run(BaseModel):
     def __hash__(self) -> int:
         """Compute hash of Run."""
         return hash(self.rid)
+
+    def assemble_args(self) -> list[str]:
+        """Assemble parameters into arguments to pass to executable."""
+        args: list[str] = []
+
+        for param, value in self.params.items():
+            args.append(f"{param}={value}")
+
+        return args
 
 
 class WorkerState(StrEnum):
