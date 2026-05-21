@@ -14,6 +14,7 @@ from pathlib import Path
 from shutil import copy, copytree, unpack_archive
 from tempfile import TemporaryDirectory
 from time import time
+from zipfile import ZIP_LZMA, ZipFile
 
 from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
@@ -22,6 +23,7 @@ from mprun import SERVER_ADDRESS_ENV
 from mprun.errors import NoRunError
 from mprun.models import (
     JOB_ARCHIVE_NAME,
+    RESULTS_ARCHIVE_NAME,
     Run,
     SuccessState,
     WorkerData,
@@ -269,7 +271,44 @@ class Worker:
 
     async def collect_results(self, directory: Path) -> None:
         """Collect results from Job execution."""
-        # TODO: collect results
+        if self.working is None:
+            raise NoRunError
+
+        archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
+        with ZipFile(
+            archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
+        ) as zf:
+            setup_stdout_path = directory / "stdout.setup"
+            if await to_thread(setup_stdout_path.is_file):
+                await to_thread(zf.write, setup_stdout_path, "stdout.setup")
+            setup_stderr_path = directory / "stderr.setup"
+            if await to_thread(setup_stderr_path.is_file):
+                await to_thread(zf.write, setup_stderr_path, "stderr.setup")
+            stdout_path = directory / "stdout"
+            if await to_thread(stdout_path.is_file):
+                await to_thread(zf.write, stdout_path, "stdout")
+            stderr_path = directory / "stderr"
+            if await to_thread(stderr_path.is_file):
+                await to_thread(zf.write, stderr_path, "stderr")
+
+            for result_local, result_archive in self.working.definition.results.items():
+                await Worker.add_result(
+                    zf=zf,
+                    name_local=Path(result_local),
+                    name_archive=Path(result_archive),
+                )
+
+    @staticmethod
+    async def add_result(zf: ZipFile, name_local: Path, name_archive: Path) -> None:
+        """Add a result to the result archive."""
+        if await to_thread(name_local.is_file):
+            await to_thread(zf.write, name_local, name_archive)
+        elif await to_thread(name_local.is_dir):
+            for root, _, files in await to_thread(name_local.walk):
+                for file in files:
+                    file_path = root / file
+                    arcname = name_archive / file_path.relative_to(name_local)
+                    await to_thread(zf.write, file_path, arcname)
 
     async def upload_results(self) -> None:
         """Upload Run results to server."""

@@ -18,7 +18,7 @@ TEST_JOB = JobDefinition(
     },
     executable="main_script.py",
     setup_executable="setup_script.py",
-    results=["/tmp/envfile"],
+    results={"/tmp/envfile": "envfile"},
     environment_variables={"foo": "bar"},
     environment_files={"envfile.txt": "/tmp/envfile"},
 )

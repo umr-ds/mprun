@@ -112,7 +112,8 @@ class JobDefinition(BaseModel):
                                               Will be used to generate runs by computing cross product of parameter lists.
         executable (str): Name of the Job's main executable.
                           If loading from TOML, must point to a File located in the same directory as the TOML definition.
-        results (list[str]): Names of files/directories that should be saved after a Run.
+        results (dict[str, str]): Names of files/directories that should be saved after a Run.
+                                  Keys are names in the worker's file system, values are the names that inside the results archive.
         setup_executable (str | None): Optional executable to be run before the main executable.
                                        If loading from TOML, must point to a File located in the same directory as the TOML definition.
         environment_variables (dict[str, str] | None): Optional dictionary of environment variables to set before running main executable.
@@ -123,7 +124,7 @@ class JobDefinition(BaseModel):
     name: str
     params: dict[str, list[TOMLScalar]]
     executable: str
-    results: list[str]
+    results: dict[str, str]
     setup_executable: str | None = None
     environment_variables: dict[str, str] | None = None
     environment_files: dict[str, str] | None = None

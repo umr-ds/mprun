@@ -1,7 +1,9 @@
 name = "test job"
 executable = "main_script.py"
 setup_executable = "setup_script.py"
-results = ["/tmp/envfile"]
+
+[results]
+"/tmp/envfile" = "envfile"
 
 [params]
 foo = [1, 2, 3]
