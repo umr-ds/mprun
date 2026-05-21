@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import WorkerData
+from mprun.models import Job, SuccessState, WorkerData
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import Worker
 from tests.helpers.job_helper import (
@@ -106,3 +106,30 @@ async def test_get_run(name: str) -> None:
             run = await worker.get_work()
             assert run is not None
             assert worker.archive_path.is_file(follow_symlinks=False)
+
+
+@pytest.mark.asyncio
+@given(name=st.text())
+async def test_execute_run(name: str) -> None:
+    """Test run execution."""
+    with TemporaryDirectory(delete=True) as data_dir:
+        directory = Path(data_dir)
+        worker_data = WorkerData.new(name=name)
+        dummy_client = AsyncClient()
+
+        job_definition, job_definition_path = copy_job_to_test_environment(
+            directory=directory
+        )
+        archive_path = job_definition.create_archive(job_toml=job_definition_path)
+        job = Job.new(definition=job_definition)
+
+        worker = Worker(
+            http_client=dummy_client, meta_data=worker_data, home_dir=directory
+        )
+
+        worker.working = job.runs[0]
+        worker.archive_path = archive_path
+
+        success = await worker.execute_run()
+
+        assert success == SuccessState.SUCCESS

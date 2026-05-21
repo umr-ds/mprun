@@ -4,6 +4,10 @@ setup_executable = "setup_script.py"
 
 [results]
 "/tmp/envfile" = "envfile"
+"/tmp/test_file.txt" = "test_file.txt"
+"/tmp/test_dir" = "test_dir"
+"working_file.txt" = "working_file.txt"
+"working_dir" = "working_dir"
 
 [params]
 foo = [1, 2, 3]
@@ -11,7 +15,8 @@ bar = ["one", "two", "three"]
 buzz = [true, false]
 
 [environment_variables]
-"foo" = "bar"
+"FOO" = "bar"
+"TEST_VARIABLE" = "test_value"
 
 [environment_files]
 "envfile.txt" = "/tmp/envfile"

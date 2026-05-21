@@ -1,7 +1,7 @@
 """Helpers that might be useful across multiple different tests."""
 
 from pathlib import Path
-from shutil import copytree
+from shutil import copy2, copytree
 
 from mprun.models import JobDefinition, ValidationMode
 
@@ -18,8 +18,17 @@ TEST_JOB = JobDefinition(
     },
     executable="main_script.py",
     setup_executable="setup_script.py",
-    results={"/tmp/envfile": "envfile"},
-    environment_variables={"foo": "bar"},
+    results={
+        "/tmp/envfile": "envfile",
+        "/tmp/test_file.txt": "test_file.txt",
+        "/tmp/test_dir": "test_dir",
+        "working_file.txt": "working_file.txt",
+        "working_dir": "working_dir",
+    },
+    environment_variables={
+        "FOO": "bar",
+        "TEST_VARIABLE": "test_value",
+    },
     environment_files={"envfile.txt": "/tmp/envfile"},
 )
 
@@ -27,7 +36,11 @@ TEST_JOB = JobDefinition(
 def copy_job_to_test_environment(directory: Path) -> tuple[JobDefinition, Path]:
     """Copy the contents of ``artefacts/test_job` to the test environment, and load the JobDefinition."""
     copytree(
-        TEST_JOB_DIRECTORY, directory, symlinks=False, dirs_exist_ok=True
+        TEST_JOB_DIRECTORY,
+        directory,
+        symlinks=False,
+        dirs_exist_ok=True,
+        copy_function=copy2,
     )  # copy Job files to clean test directory
     job_definition_path = directory / "job_definition.toml"
     job_definition = JobDefinition.load_toml(

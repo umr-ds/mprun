@@ -196,31 +196,8 @@ class Worker:
         logger.info(f"Executing Run {self.working.rid}")
         with TemporaryDirectory(delete=True) as exec_dir:
             directory = Path(exec_dir)
-            await to_thread(
-                unpack_archive,
-                filename=self.archive_path,
-                extract_dir=directory,
-                format="zip",
-            )
 
-            env = environ.copy()
-            if self.working.definition.environment_variables is not None:
-                env.update(self.working.definition.environment_variables)
-
-            if self.working.definition.environment_files is not None:
-                logger.debug("Copying environment files to destinations")
-                for (
-                    env_file,
-                    destination,
-                ) in self.working.definition.environment_files.items():
-                    source = directory / env_file
-                    logger.debug(f"Copying {source} to {destination}")
-                    if source.is_file():
-                        await to_thread(copy, source, destination)
-                    elif source.is_dir():
-                        await to_thread(
-                            copytree, source, destination, dirs_exist_ok=True
-                        )
+            env = await self.prepare_run_environment(directory=directory)
 
             if self.working.definition.setup_executable is not None:
                 logger.debug("Running setup executable")
@@ -237,7 +214,7 @@ class Worker:
                         stdout=setup_stdout_file,
                         stderr=setup_stderr_file,
                         cwd=directory,
-                        env=self.working.definition.environment_variables,
+                        env=env,
                     )
                     await process.wait()
                     if process.returncode != 0:
@@ -261,13 +238,52 @@ class Worker:
                     stdout=stdout_file,
                     stderr=stderr_file,
                     cwd=directory,
-                    env=self.working.definition.environment_variables,
+                    env=env,
                 )
                 await process.wait()
                 await self.collect_results(directory=directory)
                 if process.returncode == 0:
                     return SuccessState.SUCCESS
                 return SuccessState.FAILED
+
+    async def prepare_run_environment(self, directory: Path) -> dict[str, str]:
+        """Prepare environment for Run execution."""
+        if self.working is None:
+            raise NoRunError
+
+        logger.debug("Preparing for Run.")
+        await to_thread(
+            unpack_archive,
+            filename=self.archive_path,
+            extract_dir=directory,
+            format="zip",
+        )
+
+        # Set execute permissions for executables
+        if self.working.definition.setup_executable:
+            setup_script = directory / self.working.definition.setup_executable
+            await to_thread(setup_script.chmod, setup_script.stat().st_mode | 0o111)
+        main_script = directory / self.working.definition.executable
+        await to_thread(main_script.chmod, main_script.stat().st_mode | 0o111)
+
+        env = environ.copy()
+        if self.working.definition.environment_variables is not None:
+            env.update(self.working.definition.environment_variables)
+
+        if self.working.definition.environment_files is not None:
+            logger.debug("Copying environment files to destinations")
+            for (
+                env_file,
+                destination,
+            ) in self.working.definition.environment_files.items():
+                source = directory / env_file
+                logger.debug(f"Copying {source} to {destination}")
+                if source.is_file():
+                    await to_thread(copy, source, destination)
+                elif source.is_dir():
+                    await to_thread(copytree, source, destination, dirs_exist_ok=True)
+
+        return env
 
     async def collect_results(self, directory: Path) -> None:
         """Collect results from Job execution."""
