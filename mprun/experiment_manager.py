@@ -13,7 +13,7 @@ from typing import BinaryIO
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from mprun.errors import NoSuchExperimentError
+from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     ActiveState,
@@ -39,6 +39,7 @@ class ExperimentManager:
     _state_mutex: Lock
 
     _experiments: dict[int, Experiment]
+    _runs: dict[int, Run]
     _pending_dispatches: set[int]
 
     def __init__(self, data_path: Path) -> None:
@@ -54,7 +55,14 @@ class ExperimentManager:
 
         docs = self._experiments_table.all()
         experiments = [Experiment.model_validate(doc) for doc in docs]
-        self._experiments = {exp.eid: exp for exp in experiments if exp.active}
+        self._experiments = {}
+        self._runs = {}
+
+        for experiment in experiments:
+            if experiment.active:
+                self._experiments[experiment.eid] = experiment
+                runs = {run.rid: run for run in experiment.runs}
+                self._runs.update(runs)
         self._pending_dispatches = set()
 
     @property
@@ -87,6 +95,9 @@ class ExperimentManager:
         """Gets path to Experiment's archive."""
         return self._data_path / str(experiment.eid) / EXPERIMENT_ARCHIVE_NAME
 
+    def _experiment_path(self, experiment: Experiment) -> Path:
+        return self._data_path / str(experiment.eid)
+
     async def create_experiment(
         self, definition: ExperimentDefinition, archive: BinaryIO
     ) -> Experiment:
@@ -116,7 +127,7 @@ class ExperimentManager:
                 definition.validate_archive(archive_path=tmp_archive)
 
                 # if validation successful, store archive permanently
-                experiment_path = self._data_path / str(experiment.eid)
+                experiment_path = self._experiment_path(experiment=experiment)
                 experiment_path.mkdir(parents=False, exist_ok=False)
                 experiment_archive = experiment_path / EXPERIMENT_ARCHIVE_NAME
 
@@ -126,10 +137,12 @@ class ExperimentManager:
 
             await to_thread(self._experiments_table.insert, experiment.model_dump())
             self._experiments[experiment.eid] = experiment
+            runs = {run.rid: run for run in experiment.runs}
+            self._runs.update(runs)
 
             return experiment
 
-    async def get(self, eid: int) -> Experiment:
+    async def get_experiment(self, eid: int) -> Experiment:
         """Get an Experiment by its ID.
 
         Args:
@@ -146,6 +159,23 @@ class ExperimentManager:
             if experiment is None:
                 raise NoSuchExperimentError(eid=eid)
             return experiment
+
+    async def get_run(self, rid: int) -> Run:
+        """Get a Run by its ID.
+
+        Args:
+            rid (int): Run ID to look for.
+
+        Returns:
+            Run: Run with matching ID (if found).
+
+        Raises:
+            NoSuchRunError: If there is no Run with a matching ID.
+        """
+        async with self._state_mutex:
+            if rid not in self._runs:
+                raise NoSuchRunError(rid=rid)
+            return self._runs[rid]
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Get a waiting Run.
@@ -176,6 +206,31 @@ class ExperimentManager:
                 return PendingDispatch(manager=self, experiment=experiment, run=run)
 
             return None
+
+    async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
+        """Submit results from a run."""
+        async with self._state_mutex:
+            if run not in self._runs:
+                raise NoSuchRunError(rid=run.rid)
+            if run.eid not in self._experiments:
+                raise NoSuchExperimentError(eid=run.eid)
+
+            experiment = self._experiments[run.eid]
+
+            result_archive_path = (
+                self._experiment_path(experiment=experiment) / f"results_{run.rid}.zip"
+            )
+            with result_archive_path.open("wb") as f:
+                await to_thread(copyfileobj, results_archive, f)
+
+            runs = [
+                other_run for other_run in experiment.runs if other_run.rid != run.rid
+            ]
+            runs.append(run)
+            experiment.runs = runs
+
+            self._runs[run.rid] = run
+            await self._update(experiment=experiment)
 
     async def commit(self, operation: PendingDispatch) -> None:
         """Commit a pending operation and modify local state accordingly."""

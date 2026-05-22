@@ -29,10 +29,11 @@ from mprun.errors import (
     ArchiveValidationError,
     InvalidParametersError,
     NoSuchExperimentError,
+    NoSuchRunError,
     NoSuchWorkerError,
 )
 from mprun.experiment_manager import ExperimentManager
-from mprun.models import Experiment, ExperimentDefinition, WorkerData
+from mprun.models import Experiment, ExperimentDefinition, Run, WorkerData, WorkerState
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ async def get_experiment(
     """Return a single experiment by ID."""
     logger.debug("Received experiment get request")
     try:
-        return await em.get(eid)
+        return await em.get_experiment(eid)
     except NoSuchExperimentError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
@@ -155,6 +156,30 @@ async def dispatch_run(
             )
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@server.post("/runs/result")
+async def run_results(
+    wid: int,
+    run: str = Form(...),
+    results_archive: UploadFile = File(...),
+    em: ExperimentManager = Depends(get_experiment_manager),
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Response:
+    """Endpoint for workers to submit run results."""
+    try:
+        run_data = Run.model_validate_json(run)
+
+        await wm.unassign_run(wid=wid, rid=run_data.rid, state=WorkerState.IDLE)
+        await em.submit_run_results(run=run_data, results_archive=results_archive.file)
+
+        return Response(status_code=HTTPStatus.OK)
+    except (NoSuchWorkerError, NoSuchExperimentError, NoSuchRunError) as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    except ValidationError as err:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
+        ) from err
 
 
 @server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)

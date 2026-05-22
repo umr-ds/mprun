@@ -33,7 +33,7 @@ async def test_create() -> None:
                 definition=experiment_description, archive=f
             )
 
-        retrieved = await manager.get(eid=experiment.eid)
+        retrieved = await manager.get_experiment(eid=experiment.eid)
         assert experiment == retrieved
 
         all_experiments = await manager.get_all()
@@ -70,7 +70,7 @@ async def test_dispatch() -> None:
                 definition=experiment_description, archive=f
             )
 
-        retrieved = await manager.get(eid=experiment.eid)
+        retrieved = await manager.get_experiment(eid=experiment.eid)
         assert retrieved.active_state == ActiveState.WAITING
 
         dispatched = await manager.dispatch_waiting_run()
@@ -80,7 +80,7 @@ async def test_dispatch() -> None:
         async with dispatched:
             dispatched.finalise(wid=0)
 
-        retrieved = await manager.get(eid=experiment.eid)
+        retrieved = await manager.get_experiment(eid=experiment.eid)
         assert retrieved.active_state == ActiveState.RUNNING
 
         found = False

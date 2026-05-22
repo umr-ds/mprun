@@ -59,6 +59,21 @@ class NoSuchExperimentError(LookupError):
 
 
 @dataclass(frozen=True)
+class NoSuchRunError(LookupError):
+    """Raised when trying to retrieve a Run that does not exist.
+
+    Attributes:
+        rid (int): Non-existent Run's ID.
+    """
+
+    rid: int
+
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Run with ID {self.rid} does not exist!"
+
+
+@dataclass(frozen=True)
 class NoSuchWorkerError(LookupError):
     """Raised when trying to retrieve a Worker that does not exist.
 

@@ -4,7 +4,7 @@ from asyncio import Lock
 from time import time
 from uuid import uuid4
 
-from mprun.errors import NoSuchWorkerError
+from mprun.errors import NoSuchRunError, NoSuchWorkerError
 from mprun.models import WorkerData, WorkerState
 
 
@@ -85,7 +85,7 @@ class WorkerManager:
     async def assign_run(self, wid: int, rid: int) -> None:
         """Assign Run to worker.
 
-        Stores that woker is curently executing given Run and sets Worker's state to "WORKING".
+        Stores that woker is currently executing given Run and sets Worker's state to "WORKING".
 
         Args:
             wid (int): Worker's ID.
@@ -101,3 +101,27 @@ class WorkerManager:
             worker = self.workers[wid]
             worker.state = WorkerState.WORKING
             worker.run = rid
+
+    async def unassign_run(self, wid: int, rid: int, state: WorkerState) -> None:
+        """Unassign Run from worker.
+
+        Either because the worker finished executing the run, or because it has died.
+
+        Args:
+            wid (int): Worker's ID.
+            rid (int): Run's ID.
+            state (WorkerState): Worker's new state after unassignment
+
+        Raises:
+            NoSuchWorkerError: If no worker with the given id exists.
+        """
+        async with self._state_mutex:
+            if wid not in self.workers:
+                raise NoSuchWorkerError(wid=wid)
+
+            worker = self.workers[wid]
+            if worker.run != rid:
+                raise NoSuchRunError(rid=rid)
+
+            worker.state = state
+            worker.run = None
