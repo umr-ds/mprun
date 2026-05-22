@@ -1,6 +1,6 @@
-# MPRun - Multi-Parameter Task Runner
+# MPRun - Multi-Parameter Experiment Runner
 
-A system for orchestratin/running jobs with arbitrary parameter-sets.
+A system for orchestrating/running experiments with arbitrary parameter-sets.
 Will scan the entire parameter-space.
 
 ## Installation
@@ -51,20 +51,20 @@ mprun_client [list|get|create] # (package entrypoint)
 
 See `mprun_client --help` for all options.
 
-## Job creation
+## Experiment creation
 
-The client can create a job from a TOML file.
+The client can create an experiment from a TOML file.
 The file format is as follows:
 
 ```toml
-name = "testjob"
+name = "test experiment"
 
 [params]
 foo = [1, 2, 3]
 bar = [true, false]
 ```
 
-- `name` is the human-readable job name. This Name does not need to be unique, as each job will have its own unique ID.
+- `name` is the human-readable experiment name. This name does not need to be unique, as each experiment will have its own unique ID.
 - `params` can have an arbitrary number of parameters. Each parameter must be a list of arbitrary values.
 
 ## Development

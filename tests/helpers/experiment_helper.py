@@ -3,14 +3,14 @@
 from pathlib import Path
 from shutil import copy2, copytree
 
-from mprun.models import JobDefinition, ValidationMode
+from mprun.models import ExperimentDefinition, ValidationMode
 
 TEST_ROOT = Path(__file__).resolve().parent.parent
-TEST_JOB_DIRECTORY = TEST_ROOT / "artefacts" / "test_job"
-TEST_JOB_FILE = TEST_JOB_DIRECTORY / "job_definition.toml"
+TEST_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_experiment"
+TEST_EXPERIMENT_FILE = TEST_EXPERIMENT_DIRECTORY / "experiment_definition.toml"
 
-TEST_JOB = JobDefinition(
-    name="test job",
+TEST_EXPERIMENT = ExperimentDefinition(
+    name="test experiment",
     params={
         "foo": [1, 2, 3],
         "bar": ["one", "two", "three"],
@@ -33,18 +33,20 @@ TEST_JOB = JobDefinition(
 )
 
 
-def copy_job_to_test_environment(directory: Path) -> tuple[JobDefinition, Path]:
-    """Copy the contents of ``artefacts/test_job` to the test environment, and load the JobDefinition."""
+def copy_experiment_to_test_environment(
+    directory: Path,
+) -> tuple[ExperimentDefinition, Path]:
+    """Copy the contents of ``artefacts/test_experiment`` to the test environment, and load the ExperimentDefinition."""
     copytree(
-        TEST_JOB_DIRECTORY,
+        TEST_EXPERIMENT_DIRECTORY,
         directory,
         symlinks=False,
         dirs_exist_ok=True,
         copy_function=copy2,
-    )  # copy Job files to clean test directory
-    job_definition_path = directory / "job_definition.toml"
-    job_definition = JobDefinition.load_toml(
-        job_definition_path,
+    )  # copy Experiment files to clean test directory
+    experiment_definition_path = directory / "experiment_definition.toml"
+    experiment_definition = ExperimentDefinition.load_toml(
+        experiment_definition_path,
         validation_mode=ValidationMode.DATA_AND_FILES,
     )
-    return job_definition, job_definition_path
+    return experiment_definition, experiment_definition_path

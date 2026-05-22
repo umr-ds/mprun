@@ -1,4 +1,4 @@
-name = "test job"
+name = "test experiment"
 executable = "main_script.py"
 setup_executable = "setup_script.py"
 

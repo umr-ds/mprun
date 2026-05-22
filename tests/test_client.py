@@ -12,13 +12,13 @@ import mprun.client
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client import client
 from mprun.server import DATA_PATH_ENV, server
-from tests.helpers.job_helper import copy_job_to_test_environment
+from tests.helpers.experiment_helper import copy_experiment_to_test_environment
 
 runner = CliRunner()
 
 
-def test_create_job() -> None:
-    """Test client Job creation."""
+def test_create_experiment() -> None:
+    """Test client experiment creation."""
     with (
         TemporaryDirectory(delete=True) as test_dir,
         pytest.MonkeyPatch.context() as mp,
@@ -27,7 +27,9 @@ def test_create_job() -> None:
         mp.setenv(DATA_PATH_ENV, test_dir)
         mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-        _, test_job_definition = copy_job_to_test_environment(directory=directory)
+        _, test_experiment_definition = copy_experiment_to_test_environment(
+            directory=directory
+        )
 
         with TestClient(server) as http_client:
             mp.setattr(
@@ -36,5 +38,5 @@ def test_create_job() -> None:
                 lambda _url: nullcontext(http_client),
             )
 
-            result = runner.invoke(client, ["create", str(test_job_definition)])
+            result = runner.invoke(client, ["create", str(test_experiment_definition)])
             assert result.exit_code == 0

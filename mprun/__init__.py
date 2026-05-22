@@ -1,4 +1,4 @@
-"""Multi-Parameter Task Runner."""
+"""Multi-Parameter Experiment Runner."""
 
 PACKAGE_NAME = "mprun"
 __version__ = "0.0.1"
@@ -6,7 +6,7 @@ __all__ = [
     "SERVER_ADDRESS_ENV",
     "client",
     "errors",
-    "job_manager",
+    "experiment_manager",
     "models",
     "server",
     "worker",

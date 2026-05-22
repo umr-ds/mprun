@@ -1,4 +1,4 @@
-"""Module contains tool to manage Jobs."""
+"""Module contains tool to manage Experiments."""
 
 from __future__ import annotations
 
@@ -13,129 +13,139 @@ from typing import BinaryIO
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from mprun.errors import NoSuchJobError
-from mprun.models import JOB_ARCHIVE_NAME, ActiveState, Job, JobDefinition, Run
+from mprun.errors import NoSuchExperimentError
+from mprun.models import (
+    EXPERIMENT_ARCHIVE_NAME,
+    ActiveState,
+    Experiment,
+    ExperimentDefinition,
+    Run,
+)
 
 
-class JobManager:
-    """Manages (creates, deletes, dispatches, etc) Jobs.
+class ExperimentManager:
+    """Manages (creates, deletes, dispatches, etc) Experiments.
 
     Attributes:
-        _data_path (Path): Base-path for the data directory. Will be used to store database & job data.
-        _db (TinyDB): Database for Job metadata.
+        _data_path (Path): Base-path for the data directory. Will be used to store database & experiment data.
+        _db (TinyDB): Database for Experiment metadata.
         _state_mutex (Lock): Mutex to prevent concurrent state modification.
 
-        _jobs (dict[Job]): All active jobs.
+        _experiments (dict[Experiment]): All active experiments.
     """
 
     _data_path: Path
     _db: TinyDB
     _state_mutex: Lock
 
-    _jobs: dict[int, Job]
+    _experiments: dict[int, Experiment]
     _pending_dispatches: set[int]
 
     def __init__(self, data_path: Path) -> None:
-        """Initialise JobManager.
+        """Initialise ExperimentManager.
 
         Args:
-            data_path (Path): Base-path for the data directory. Will be used to store database & job data.
+            data_path (Path): Base-path for the data directory. Will be used to store database & experiment data.
         """
         data_path.mkdir(parents=True, exist_ok=True)
         self._data_path = data_path
         self._db = TinyDB(data_path / "db.json")
         self._state_mutex = Lock()
 
-        docs = self._jobs_table.all()
-        jobs = [Job.model_validate(doc) for doc in docs]
-        self._jobs = {job.jid: job for job in jobs if job.active}
+        docs = self._experiments_table.all()
+        experiments = [Experiment.model_validate(doc) for doc in docs]
+        self._experiments = {exp.eid: exp for exp in experiments if exp.active}
         self._pending_dispatches = set()
 
     @property
-    def _jobs_table(self) -> Table:
-        return self._db.table("jobs")
+    def _experiments_table(self) -> Table:
+        return self._db.table("experiments")
 
-    async def _update(self, job: Job) -> None:
-        """Update Job's data in database.
+    async def _update(self, experiment: Experiment) -> None:
+        """Update Experiment's data in database.
 
         *IMPORTANT*: This method is *NOT* thread safe. The caller MUST have locked the manager's state_mutex before calling.
         """
         update = Query()
         await to_thread(
-            self._jobs_table.update, job.model_dump(), update.jid == job.jid
+            self._experiments_table.update,
+            experiment.model_dump(),
+            update.eid == experiment.eid,
         )
 
     def close(self) -> None:
         """Close database & shut down."""
         self._db.close()
 
-    async def get_all(self) -> list[Job]:
-        """Get list of all existing Jobs."""
+    async def get_all(self) -> list[Experiment]:
+        """Get list of all existing Experiments."""
         async with self._state_mutex:
-            docs = await to_thread(self._jobs_table.all)
-            return [Job.model_validate(doc) for doc in docs]
+            docs = await to_thread(self._experiments_table.all)
+            return [Experiment.model_validate(doc) for doc in docs]
 
-    def get_job_archive(self, job: Job) -> Path:
-        """Gets path to Job's archive."""
-        return self._data_path / str(job.jid) / JOB_ARCHIVE_NAME
+    def get_experiment_archive(self, experiment: Experiment) -> Path:
+        """Gets path to Experiment's archive."""
+        return self._data_path / str(experiment.eid) / EXPERIMENT_ARCHIVE_NAME
 
-    async def create_job(self, definition: JobDefinition, archive: BinaryIO) -> Job:
-        """Create a new Job.
+    async def create_experiment(
+        self, definition: ExperimentDefinition, archive: BinaryIO
+    ) -> Experiment:
+        """Create a new Experiment.
 
         Args:
-            definition (JobDefinition): Definition for new job.
-            archive (BinaryIO): Job archive containing the Job's files.
+            definition (ExperimentDefinition): Definition for new experiment.
+            archive (BinaryIO): Experiment archive containing the Experiment's files.
 
         Returns:
-            Job: Newly created Job.
+            Experiment: Newly created Experiment.
 
         Raises:
-            ArchiveValidationError: If archive contents do not match the JobDefinition.
+            ArchiveValidationError: If archive contents do not match the ExperimentDefinition.
             zipfile.BadZipFile: If archive is not a valid ZIP file.
             OSError: If writing archive to disk fails (e.g. disk full, permission denied).
-            FileExistsError: If job data directory already exists (UUID collision).
+            FileExistsError: If experiment data directory already exists (UUID collision).
         """
         async with self._state_mutex:
-            job = Job.new(definition=definition)
+            experiment = Experiment.new(definition=definition)
 
             with TemporaryDirectory(delete=True) as tmp_dir:
                 # copy archive to temporary directory for validation
-                tmp_archive = Path(tmp_dir) / JOB_ARCHIVE_NAME
+                tmp_archive = Path(tmp_dir) / EXPERIMENT_ARCHIVE_NAME
                 with tmp_archive.open("wb") as f:
                     await to_thread(copyfileobj, archive, f)
                 definition.validate_archive(archive_path=tmp_archive)
 
                 # if validation successful, store archive permanently
-                job_path = self._data_path / str(job.jid)
-                job_path.mkdir(parents=False, exist_ok=False)
-                job_archive = job_path / JOB_ARCHIVE_NAME
+                experiment_path = self._data_path / str(experiment.eid)
+                experiment_path.mkdir(parents=False, exist_ok=False)
+                experiment_archive = experiment_path / EXPERIMENT_ARCHIVE_NAME
 
                 await to_thread(
-                    copy, src=tmp_archive, dst=job_archive, follow_symlinks=False
+                    copy, src=tmp_archive, dst=experiment_archive, follow_symlinks=False
                 )
 
-            await to_thread(self._jobs_table.insert, job.model_dump())
-            self._jobs[job.jid] = job
+            await to_thread(self._experiments_table.insert, experiment.model_dump())
+            self._experiments[experiment.eid] = experiment
 
-            return job
+            return experiment
 
-    async def get(self, jid: int) -> Job:
-        """Get a Job by its ID.
+    async def get(self, eid: int) -> Experiment:
+        """Get an Experiment by its ID.
 
         Args:
-            jid (int): Job ID to look for.
+            eid (int): Experiment ID to look for.
 
         Returns:
-            Job: Job with matching ID (if found).
+            Experiment: Experiment with matching ID (if found).
 
         Raises:
-            NoSuchJobError: If there is no Job with a matching ID.
+            NoSuchExperimentError: If there is no Experiment with a matching ID.
         """
         async with self._state_mutex:
-            job = self._jobs.get(jid)
-            if job is None:
-                raise NoSuchJobError(jid=jid)
-            return job
+            experiment = self._experiments.get(eid)
+            if experiment is None:
+                raise NoSuchExperimentError(eid=eid)
+            return experiment
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Get a waiting Run.
@@ -147,12 +157,14 @@ class JobManager:
             Run | None: Run-object if a waiting Run is available, None if none available.
         """
         async with self._state_mutex:
-            jobs = [job for job in self._jobs.values() if len(job.waiting_runs) > 0]
+            experiments = [
+                exp for exp in self._experiments.values() if len(exp.waiting_runs) > 0
+            ]
 
-            for job in jobs:
+            for experiment in experiments:
                 runs = [
                     run
-                    for run in job.waiting_runs
+                    for run in experiment.waiting_runs
                     if run.rid not in self._pending_dispatches
                 ]
                 if not runs:
@@ -161,7 +173,7 @@ class JobManager:
                 run = runs[0]
                 self._pending_dispatches.add(run.rid)
 
-                return PendingDispatch(manager=self, job=job, run=run)
+                return PendingDispatch(manager=self, experiment=experiment, run=run)
 
             return None
 
@@ -171,10 +183,10 @@ class JobManager:
             operation.run.active_state = ActiveState.RUNNING
             operation.run.wid = operation.wid
 
-            if operation.job.active_state == ActiveState.WAITING:
-                operation.job.active_state = ActiveState.RUNNING
+            if operation.experiment.active_state == ActiveState.WAITING:
+                operation.experiment.active_state = ActiveState.RUNNING
 
-            await self._update(job=operation.job)
+            await self._update(experiment=operation.experiment)
 
             self._pending_dispatches.remove(operation.run.rid)
 
@@ -188,15 +200,15 @@ class PendingDispatch:
     """Represents a Run that has been marked for dispatching, but not assigned to a worker.
 
     Attributes:
-        manager (JobManager): Responsible Job Manager.
-        job (Job): The Run's parent Job.
+        manager (ExperimentManager): Responsible Experiment Manager.
+        experiment (Experiment): The Run's parent Experiment.
         run (Run): The actual Run.
         wid (int | None): None if no worker has been assigned. Once assigned, the Worker's ID.
         _finalised (bool): Whether the dispatch has been finalised.
     """
 
-    manager: JobManager
-    job: Job
+    manager: ExperimentManager
+    experiment: Experiment
     run: Run
     wid: int | None = None
     _finalised: bool = False
@@ -222,14 +234,14 @@ class PendingDispatch:
         return None
 
     def finalise(self, wid: int) -> Path:
-        """Finalise pending dispatch and return path to parent Job's archive.
+        """Finalise pending dispatch and return path to parent Experiment's archive.
 
         Args:
             wid (int): ID of the worker that the Run is dispatched to.
 
         Returns:
-            Path: Filesystem path to the Job's archive.
+            Path: Filesystem path to the Experiment's archive.
         """
         self.wid = wid
         self._finalised = True
-        return self.manager.get_job_archive(job=self.job)
+        return self.manager.get_experiment_archive(experiment=self.experiment)

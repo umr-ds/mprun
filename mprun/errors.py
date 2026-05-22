@@ -5,13 +5,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ArchiveValidationError(ValueError):
-    """Raised when a Job archive fails validation."""
+    """Raised when an Experiment archive fails validation."""
 
     reason: str
 
     def __str__(self) -> str:
         """Error's string representation."""
-        return f"Job archive invalid! Reason: {self.reason}"
+        return f"Experiment archive invalid! Reason: {self.reason}"
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ class InvalidParametersError(ValueError):
 
     def __str__(self) -> str:
         """Error's string representation."""
-        return f"Job parameters invalid! Reason: {self.reason}"
+        return f"Experiment parameters invalid! Reason: {self.reason}"
 
 
 dataclass(frozen=True)
@@ -44,18 +44,18 @@ class NoRunError(AttributeError):
 
 
 @dataclass(frozen=True)
-class NoSuchJobError(LookupError):
-    """Raised when trying to retrieve a Job that does not exist.
+class NoSuchExperimentError(LookupError):
+    """Raised when trying to retrieve an Experiment that does not exist.
 
     Attributes:
-        jid (int): Non-existent Job's ID.
+        eid (int): Non-existent Experiment's ID.
     """
 
-    jid: int
+    eid: int
 
     def __str__(self) -> str:
         """Error's string representation."""
-        return f"Job with ID {self.jid} does not exist!"
+        return f"Experiment with ID {self.eid} does not exist!"
 
 
 @dataclass(frozen=True)

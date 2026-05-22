@@ -10,11 +10,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.models import Job, WorkerData
+from mprun.models import Experiment, WorkerData
 from mprun.server import DATA_PATH_ENV, server
-from tests.helpers.job_helper import (
-    TEST_JOB,
-    copy_job_to_test_environment,
+from tests.helpers.experiment_helper import (
+    TEST_EXPERIMENT,
+    copy_experiment_to_test_environment,
 )
 
 
@@ -80,11 +80,11 @@ class TestWorkers:
                 assert worker_get == worker
 
 
-class TestJobs:
-    """Tests for job-related endpoints."""
+class TestExperiments:
+    """Tests for experiment-related endpoints."""
 
-    def test_create_job(self) -> None:
-        """Test jobs creation."""
+    def test_create_experiment(self) -> None:
+        """Test experiment creation."""
         with (
             TemporaryDirectory(delete=True) as test_dir,
             pytest.MonkeyPatch.context() as mp,
@@ -93,20 +93,26 @@ class TestJobs:
             mp.setenv(DATA_PATH_ENV, test_dir)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            job_definition, job_definition_path = copy_job_to_test_environment(
-                directory=directory
+            experiment_definition, experiment_definition_path = (
+                copy_experiment_to_test_environment(directory=directory)
             )
-            archive_path = job_definition.create_archive(job_toml=job_definition_path)
+            archive_path = experiment_definition.create_archive(
+                experiment_toml=experiment_definition_path
+            )
 
             with TestClient(server) as client, archive_path.open("rb") as archive_file:
                 response = client.post(
-                    "/jobs",
-                    data={"job_definition": TEST_JOB.model_dump_json()},
+                    "/experiments",
+                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
                     files={
-                        "archive": ("job_archive.zip", archive_file, "application/zip")
+                        "archive": (
+                            "experiment_archive.zip",
+                            archive_file,
+                            "application/zip",
+                        )
                     },
                 )
                 assert response.status_code == HTTPStatus.CREATED
-                job = Job.model_validate(response.json())
-                assert job.name == TEST_JOB.name
-                assert job.definition.params == TEST_JOB.params
+                experiment = Experiment.model_validate(response.json())
+                assert experiment.name == TEST_EXPERIMENT.name
+                assert experiment.definition.params == TEST_EXPERIMENT.params

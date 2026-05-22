@@ -28,11 +28,11 @@ from typer import Option, Typer
 from mprun.errors import (
     ArchiveValidationError,
     InvalidParametersError,
-    NoSuchJobError,
+    NoSuchExperimentError,
     NoSuchWorkerError,
 )
-from mprun.job_manager import JobManager
-from mprun.models import Job, JobDefinition, WorkerData
+from mprun.experiment_manager import ExperimentManager
+from mprun.models import Experiment, ExperimentDefinition, WorkerData
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -46,12 +46,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     data_path = Path.home() / ".mprun" if data_path_str is None else Path(data_path_str)
 
     logger.info(f"Starting server in {data_path}")
-    app.state.job_manager = JobManager(data_path=data_path)
+    app.state.experiment_manager = ExperimentManager(data_path=data_path)
     app.state.worker_manager = WorkerManager()
     try:
         yield
     finally:
-        app.state.job_manager.close()
+        app.state.experiment_manager.close()
 
 
 server = FastAPI(
@@ -62,9 +62,9 @@ server = FastAPI(
 cli = Typer()
 
 
-def get_job_manager(request: Request) -> JobManager:
-    """Dependency to inject the shared JobManager."""
-    return request.app.state.job_manager
+def get_experiment_manager(request: Request) -> ExperimentManager:
+    """Dependency to inject the shared ExperimentManager."""
+    return request.app.state.experiment_manager
 
 
 def get_worker_manager(request: Request) -> WorkerManager:
@@ -72,23 +72,25 @@ def get_worker_manager(request: Request) -> WorkerManager:
     return request.app.state.worker_manager
 
 
-@server.post("/jobs", response_model=Job, status_code=HTTPStatus.CREATED)
-async def create_job(
-    job_definition: str = Form(...),
+@server.post("/experiments", response_model=Experiment, status_code=HTTPStatus.CREATED)
+async def create_experiment(
+    experiment_definition: str = Form(...),
     archive: UploadFile = File(...),
-    jm: JobManager = Depends(get_job_manager),
-) -> Job:
-    """Create a new job from multipart form (JobDefinition JSON + archive) and return it."""
-    logger.debug("Received job create request")
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> Experiment:
+    """Create a new experiment from multipart form (ExperimentDefinition JSON + archive) and return it."""
+    logger.debug("Received experiment create request")
     try:
-        definition = JobDefinition.model_validate_json(job_definition)
+        definition = ExperimentDefinition.model_validate_json(experiment_definition)
     except ValidationError as err:
         raise HTTPException(
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
         ) from err
 
     try:
-        job = await jm.create_job(definition=definition, archive=archive.file)
+        experiment = await em.create_experiment(
+            definition=definition, archive=archive.file
+        )
     except InvalidParametersError as err:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST, detail=str(err)
@@ -98,32 +100,32 @@ async def create_job(
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
         ) from err
     except OSError as err:
-        logger.exception("I/O error during job creation")
+        logger.exception("I/O error during experiment creation")
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(err)
         ) from err
-    return job
+    return experiment
 
 
-@server.get("/jobs", response_model=list[Job])
-async def list_jobs(
-    jm: JobManager = Depends(get_job_manager),
-) -> list[Job]:
-    """Return all existing jobs."""
-    logger.debug("Received job list request")
-    return await jm.get_all()
+@server.get("/experiments", response_model=list[Experiment])
+async def list_experiments(
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> list[Experiment]:
+    """Return all existing experiments."""
+    logger.debug("Received experiment list request")
+    return await em.get_all()
 
 
-@server.get("/jobs/{jid}", response_model=Job)
-async def get_job(
-    jid: int,
-    jm: JobManager = Depends(get_job_manager),
-) -> Job:
-    """Return a single job by ID."""
-    logger.debug("Received job get request")
+@server.get("/experiments/{eid}", response_model=Experiment)
+async def get_experiment(
+    eid: int,
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> Experiment:
+    """Return a single experiment by ID."""
+    logger.debug("Received experiment get request")
     try:
-        return await jm.get(jid)
-    except NoSuchJobError as err:
+        return await em.get(eid)
+    except NoSuchExperimentError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
@@ -150,16 +152,16 @@ async def list_workers(
 @server.get("/workers/run", response_model=None)
 async def get_run_for_worker(
     wid: int,
-    jm: JobManager = Depends(get_job_manager),
+    em: ExperimentManager = Depends(get_experiment_manager),
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Response:
     """Workers query this endpoint to get a run to execute.
 
-    Returns the Job archive as the response body (application/zip) with the
+    Returns the Experiment archive as the response body (application/zip) with the
     Run object serialised as JSON in the `X-Run` header.
     """
     try:
-        pending = await jm.dispatch_waiting_run()
+        pending = await em.dispatch_waiting_run()
         if pending is None:
             return Response(status_code=HTTPStatus.NO_CONTENT)
 

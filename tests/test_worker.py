@@ -9,12 +9,12 @@ from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import RESULTS_ARCHIVE_NAME, Job, SuccessState, WorkerData
+from mprun.models import RESULTS_ARCHIVE_NAME, Experiment, SuccessState, WorkerData
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import Worker
-from tests.helpers.job_helper import (
-    TEST_JOB,
-    copy_job_to_test_environment,
+from tests.helpers.experiment_helper import (
+    TEST_EXPERIMENT,
+    copy_experiment_to_test_environment,
 )
 
 
@@ -86,19 +86,25 @@ async def test_get_run(name: str) -> None:
             await worker.get_work()
             assert (
                 worker.working is None
-            )  # if there's no jobs present, we can get no work
+            )  # if there's no experiments present, we can get no work
 
-            # submit example job
-            job_definition, job_definition_path = copy_job_to_test_environment(
-                directory=directory
+            # submit example experiment
+            experiment_definition, experiment_definition_path = (
+                copy_experiment_to_test_environment(directory=directory)
             )
-            archive_path = job_definition.create_archive(job_toml=job_definition_path)
+            archive_path = experiment_definition.create_archive(
+                experiment_toml=experiment_definition_path
+            )
             with archive_path.open("rb") as archive_file:
                 response = await client.post(
-                    "/jobs",
-                    data={"job_definition": TEST_JOB.model_dump_json()},
+                    "/experiments",
+                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
                     files={
-                        "archive": ("job_archive.zip", archive_file, "application/zip")
+                        "archive": (
+                            "experiment_archive.zip",
+                            archive_file,
+                            "application/zip",
+                        )
                     },
                 )
                 response.raise_for_status()
@@ -118,17 +124,19 @@ async def test_execute_run(name: str) -> None:
         worker_data = WorkerData.new(name=name)
         dummy_client = AsyncClient()
 
-        job_definition, job_definition_path = copy_job_to_test_environment(
-            directory=directory
+        experiment_definition, experiment_definition_path = (
+            copy_experiment_to_test_environment(directory=directory)
         )
-        archive_path = job_definition.create_archive(job_toml=job_definition_path)
-        job = Job.new(definition=job_definition)
+        archive_path = experiment_definition.create_archive(
+            experiment_toml=experiment_definition_path
+        )
+        experiment = Experiment.new(definition=experiment_definition)
 
         worker = Worker(
             http_client=dummy_client, meta_data=worker_data, home_dir=directory
         )
 
-        worker.working = job.runs[0]
+        worker.working = experiment.runs[0]
         worker.archive_path = archive_path
 
         success = await worker.execute_run()
@@ -145,17 +153,19 @@ async def test_collect_results(name: str) -> None:
         worker_data = WorkerData.new(name=name)
         dummy_client = AsyncClient()
 
-        job_definition, job_definition_path = copy_job_to_test_environment(
-            directory=directory
+        experiment_definition, experiment_definition_path = (
+            copy_experiment_to_test_environment(directory=directory)
         )
-        archive_path = job_definition.create_archive(job_toml=job_definition_path)
-        job = Job.new(definition=job_definition)
+        archive_path = experiment_definition.create_archive(
+            experiment_toml=experiment_definition_path
+        )
+        experiment = Experiment.new(definition=experiment_definition)
 
         worker = Worker(
             http_client=dummy_client, meta_data=worker_data, home_dir=directory
         )
 
-        worker.working = job.runs[0]
+        worker.working = experiment.runs[0]
         worker.archive_path = archive_path
 
         success = await worker.execute_run()

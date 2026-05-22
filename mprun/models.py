@@ -15,10 +15,12 @@ from tomlkit import dump, load
 
 from mprun.errors import ArchiveValidationError, InvalidParametersError
 
-type TOMLScalar = str | int | float | bool  # TOML-serialisable types for Job params
+type TOMLScalar = (
+    str | int | float | bool
+)  # TOML-serialisable types for Experiment params
 
-JOB_DEFINITION_NAME = "job_definition.toml"
-JOB_ARCHIVE_NAME = "job_archive.zip"
+EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
+EXPERIMENT_ARCHIVE_NAME = "experiment_archive.zip"
 RESULTS_ARCHIVE_NAME = "results.zip"
 
 
@@ -55,14 +57,14 @@ def _expand_parameters(
 
 
 class ActiveState(StrEnum):
-    """Possible active states for both Jobs and Runs.
+    """Possible active states for both Experiments and Runs.
 
     Meaning for Run:
         WAITING: Run has not been dispatched.
         RUNNING: Run has been dispatched, has not finished.
         FINISHED: Run has finished.
 
-    Meaning for Job:
+    Meaning for Experiment:
         WAITING: All runs are waiting.
         RUNNING: At least one run is running.
         FINISHED: All runs have finished.
@@ -74,14 +76,14 @@ class ActiveState(StrEnum):
 
 
 class SuccessState(StrEnum):
-    """Possible success states for Jobs and Runs.
+    """Possible success states for Experiments and Runs.
 
     Meaning for Runs:
         PENDING: This Run has not finished
         SUCCESS: This Run has finished without error.
         FAILED: This Run has finished with an error.
 
-    Meaning for Jobs:
+    Meaning for Experiments:
         PENDING: There are still Runs with state PENDING, no Runs with state FAILED
         SUCCESS: All Runs have state SUCCESS
         FAILED: At least one Run has state FAILED
@@ -93,24 +95,24 @@ class SuccessState(StrEnum):
 
 
 class ValidationMode(Enum):
-    """Different modes for validation of Jobs/JobDefinitions.
+    """Different modes for validation of Experiments/ExperimentDefinitions.
 
-    DATA_ONLY: Only validate Job data (contents of Job/JobDefinition object).
-    DATA_AND_FILES: Also validate Job files (check if filenames speicifed in Job actually exist).
+    DATA_ONLY: Only validate Experiment data (contents of Experiment/ExperimentDefinition object).
+    DATA_AND_FILES: Also validate Experiment files (check if filenames specified in Experiment actually exist).
     """
 
     DATA_ONLY = auto()
     DATA_AND_FILES = auto()
 
 
-class JobDefinition(BaseModel):
-    """Minimal info needed to create a new Job.
+class ExperimentDefinition(BaseModel):
+    """Minimal info needed to create a new Experiment.
 
     Args:
-        name (str): Human readable job name. Does not have to be unique.
-        params (dict[str, list[TOMLScalar]]): Job's parameters. Each parameter should be a list of discrete TOML-serializable values (str, int, float, bool).
+        name (str): Human readable experiment name. Does not have to be unique.
+        params (dict[str, list[TOMLScalar]]): Experiment's parameters. Each parameter should be a list of discrete TOML-serializable values (str, int, float, bool).
                                               Will be used to generate runs by computing cross product of parameter lists.
-        executable (str): Name of the Job's main executable.
+        executable (str): Name of the Experiment's main executable.
                           If loading from TOML, must point to a File located in the same directory as the TOML definition.
         results (dict[str, str]): Names of files/directories that should be saved after a Run.
                                   Keys are names in the worker's file system, values are the names that inside the results archive.
@@ -130,7 +132,7 @@ class JobDefinition(BaseModel):
     environment_files: dict[str, str] | None = None
 
     def dump_toml(self, file_path: Path) -> None:
-        """Dump contents of JobDefinition into ``file_path``.
+        """Dump contents of ExperimentDefinition into ``file_path``.
 
         Args:
             file_path (Path): Path to TOML file.
@@ -142,16 +144,16 @@ class JobDefinition(BaseModel):
     @classmethod
     def load_toml(
         cls, file_path: Path, validation_mode: ValidationMode
-    ) -> JobDefinition:
-        """Load a JobDefinition from a TOML file.
+    ) -> ExperimentDefinition:
+        """Load an ExperimentDefinition from a TOML file.
 
         Returns:
-            JobDefinition: Parsed & validated JobDefinition from file.
-            validation_mode (ValidationMode): Extend of validation. (See ValidationMode for meanings)
+            ExperimentDefinition: Parsed & validated ExperimentDefinition from file.
+            validation_mode (ValidationMode): Extent of validation. (See ValidationMode for meanings)
 
         Raises:
             OSError: If reading file fails
-            pydantic.ValidationError: If contents of file are not valid JobDefinition
+            pydantic.ValidationError: If contents of file are not valid ExperimentDefinition
         """
         with file_path.open("r") as f:
             if validation_mode == ValidationMode.DATA_ONLY:
@@ -170,10 +172,10 @@ class JobDefinition(BaseModel):
 
         Args:
             name (str): Name of executable. Just the name, NOT the full path. Full path will be computed from ValidationInfo.
-            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Experiment's files are located.
 
         Returns:
-            str: Validates executable name
+            str: Validated executable name
 
         Raises:
             ValueError: If validation fails.
@@ -204,24 +206,24 @@ class JobDefinition(BaseModel):
     def validate_setup(cls, name: str | None, info: ValidationInfo) -> str | None:
         """Validate optional setup executable.
 
-        If a name is included, the validation logic is basically the same as with the main executable.
+        If a name is included, the validation logic is the same as with the main executable.
 
         Args:
             name (str | None): Name of executable. Just the name, NOT the full path. Full path will be computed from ValidationInfo.
                                If None, no validation happens.
-            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Experiment's files are located.
 
         Returns:
-            str | None: None, if no name was given, otherwise the vaidated name.
+            str | None: None, if no name was given, otherwise the validated name.
 
         Raises:
             ValueError: If validation fails.
         """
-        if name is None:  # if no name is given, the nthere's nothing to do
+        if name is None:  # if no name is given, then there's nothing to do
             return None
         return cls.validate_executable(
             name=name, info=info
-        )  # if a name is given, the validation logic is tha same as with the main executable.
+        )  # if a name is given, the validation logic is the same as with the main executable.
 
     @field_validator("environment_files", mode="after")
     @classmethod
@@ -233,10 +235,10 @@ class JobDefinition(BaseModel):
         Args:
             files (dict[str, str] | None): Dict of form {<file_name>: <copy_to>}. Method will check if `file_name` exists. Does not validate `copy_to`.
                                            If None, no validation happens.
-            info (ValidationInfo): If present, info.context must be Path pointing to directory where Job's files are located.
+            info (ValidationInfo): If present, info.context must be Path pointing to directory where Experiment's files are located.
 
         Returns:
-            dict[str, str] | None: None, if no files were specified. Otherise, the validated list of files.
+            dict[str, str] | None: None, if no files were specified. Otherwise, the validated list of files.
 
         Raises:
             ValueError: If validation fails.
@@ -261,35 +263,37 @@ class JobDefinition(BaseModel):
 
         return files
 
-    def create_archive(self, job_toml: Path) -> Path:
-        """Create archive for Job.
+    def create_archive(self, experiment_toml: Path) -> Path:
+        """Create archive for Experiment.
 
-        Tries to create zip archive of all files specified in this JobDefinition.
+        Tries to create zip archive of all files specified in this ExperimentDefinition.
         Created archive will be located in same directory as files.
 
         Args:
-            job_toml (Path): Path to the Job's TOML file. All other Job files need to be located in the same directory.
+            experiment_toml (Path): Path to the Experiment's TOML file. All other Experiment files need to be located in the same directory.
 
         Returns:
             Path: Path of the created archive.
 
         Raises:
-            FileNotFoundError: If ``job_toml``, its parent directory, or any referenced file
+            FileNotFoundError: If ``experiment_toml``, its parent directory, or any referenced file
                 (``executable``, ``setup_executable``, entries in ``environment_files``) does not exist.
             PermissionError: If the archive destination directory is not writable, or any source
                 file is not readable.
             OSError: For other I/O failures (e.g. disk full) during archive creation or file writes.
             lzma.LZMAError: If LZMA compression fails (rare; typically memory pressure or corrupt data).
         """
-        directory = job_toml.parent
-        archive_path = directory / JOB_ARCHIVE_NAME
+        directory = experiment_toml.parent
+        archive_path = directory / EXPERIMENT_ARCHIVE_NAME
         with ZipFile(
             archive_path,
             mode="w",
             compression=ZIP_LZMA,
             allowZip64=True,
         ) as zf:
-            zf.write(job_toml, JOB_DEFINITION_NAME)  # add JobDefinition itself
+            zf.write(
+                experiment_toml, EXPERIMENT_DEFINITION_NAME
+            )  # add ExperimentDefinition itself
             zf.write(
                 directory / self.executable, self.executable
             )  # add main executable
@@ -305,25 +309,25 @@ class JobDefinition(BaseModel):
         return archive_path
 
     def validate_archive(self, archive_path: Path) -> None:
-        """Validate Job archive.
+        """Validate Experiment archive.
 
         Args:
-            archive_path (Path): Path of the Job's archive
+            archive_path (Path): Path of the Experiment's archive
 
         Raises:
-            ArchiveValidationError: If the archive's contents do not match the JobDefinition.
+            ArchiveValidationError: If the archive's contents do not match the ExperimentDefinition.
         """
         with ZipFile(archive_path, mode="r") as zf:
             contents = zf.namelist()
-            if JOB_DEFINITION_NAME not in contents:
-                msg = "Archive does not contain Job definition"
+            if EXPERIMENT_DEFINITION_NAME not in contents:
+                msg = "Archive does not contain Experiment definition"
                 raise ArchiveValidationError(reason=msg)
-            with zf.open(JOB_DEFINITION_NAME, "r") as f:
-                archive_definition = JobDefinition.model_validate(
+            with zf.open(EXPERIMENT_DEFINITION_NAME, "r") as f:
+                archive_definition = ExperimentDefinition.model_validate(
                     load(f).unwrap(), strict=True
                 )
                 if archive_definition != self:
-                    msg = "Job definition in archive is different"
+                    msg = "Experiment definition in archive is different"
                     raise ArchiveValidationError(reason=msg)
 
             if self.executable not in contents:
@@ -339,41 +343,41 @@ class JobDefinition(BaseModel):
                         raise ArchiveValidationError(reason=msg)
 
 
-class Job(BaseModel):
-    """Parametrised job.
+class Experiment(BaseModel):
+    """Parametrised experiment.
 
-    The Job acts as the container for a list of Runs, which are generated during initialisation from the Job's parameters.
+    The Experiment acts as the container for a list of Runs, which are generated during initialisation from the Experiment's parameters.
 
     Attributes:
-        definition (JobDefinition): Job's metadata
-        jid (int): Unique identifier of this job. Generated automatically from uuid.uuid4.
+        definition (ExperimentDefinition): Experiment's metadata
+        eid (int): Unique identifier of this experiment. Generated automatically from uuid.uuid4.
                    (Integer representation of a UUID for serialisability)
-        name (str): Human readable job name. Does not have to be unique.
-        active_state (ActiveState): Job's active state. See ActiveState enum for behaviour documentation.
-        success_state (SuccessState): Job's success state. See SuccessState enum for behaviour documentation.
+        name (str): Human readable experiment name. Does not have to be unique.
+        active_state (ActiveState): Experiment's active state. See ActiveState enum for behaviour documentation.
+        success_state (SuccessState): Experiment's success state. See SuccessState enum for behaviour documentation.
         runs (list[Run]): List of Runs that were generated from parameters.
     """
 
-    definition: JobDefinition
-    jid: int
+    definition: ExperimentDefinition
+    eid: int
     name: str
     active_state: ActiveState
     success_state: SuccessState
     runs: list[Run]
 
     def __str__(self) -> str:
-        """Job's string representation."""
-        return f"Job({self.name})"
+        """Experiment's string representation."""
+        return f"Experiment({self.name})"
 
     def __hash__(self) -> int:
-        """Compute hash of Job."""
-        return hash(self.jid)
+        """Compute hash of Experiment."""
+        return hash(self.eid)
 
     @property
     def active(self) -> bool:
-        """Whether this Job is 'active'.
+        """Whether this Experiment is 'active'.
 
-        A Job is active if its active_state is either WAITING or RUNNING.
+        An Experiment is active if its active_state is either WAITING or RUNNING.
         """
         return self.active_state in (ActiveState.WAITING, ActiveState.RUNNING)
 
@@ -383,13 +387,13 @@ class Job(BaseModel):
         return [run for run in self.runs if run.active_state == ActiveState.WAITING]
 
     @classmethod
-    def new(cls, definition: JobDefinition) -> Job:
-        """Create new Job from a JobDefinition.
+    def new(cls, definition: ExperimentDefinition) -> Experiment:
+        """Create new Experiment from an ExperimentDefinition.
 
         Args:
-            definition (JobDefinition): Definition of new Job.
+            definition (ExperimentDefinition): Definition of new Experiment.
         """
-        jid = uuid4()
+        eid = uuid4()
         active_state = ActiveState.WAITING
         success_state = SuccessState.PENDING
         runs: list[Run] = []
@@ -398,8 +402,8 @@ class Job(BaseModel):
             runs.append(
                 Run(
                     definition=definition,
-                    jid=jid.int,
-                    rid=uuid5(namespace=jid, name=bytes(index)).int,
+                    eid=eid.int,
+                    rid=uuid5(namespace=eid, name=bytes(index)).int,
                     index=index,
                     name=f"{definition.name}-{index}",
                     active_state=active_state,
@@ -408,9 +412,9 @@ class Job(BaseModel):
                 ),
             )
 
-        return Job(
+        return Experiment(
             definition=definition,
-            jid=jid.int,
+            eid=eid.int,
             name=definition.name,
             active_state=active_state,
             success_state=success_state,
@@ -419,23 +423,23 @@ class Job(BaseModel):
 
 
 class Run(BaseModel):
-    """A single run of a Job.
+    """A single run of an Experiment.
 
     Attributes:
-        jid (int): Job ID of the parent Job. (Integer representation of a UUID for serialisability)
+        eid (int): Experiment ID of the parent Experiment. (Integer representation of a UUID for serialisability)
         index (int): Run's index amongst its brethren.
         rid (int): Unique identifier for this Run. (Integer representation of a UUID for serialisability)
-                    Generated with uuid.uuid5, using parent's job ID as namespace and index as name.
+                    Generated with uuid.uuid5, using parent's experiment ID as namespace and index as name.
         wid (int | None): If this Run has been dispatched to a worker, this attribute contains the worker's ID.
                           None if Run has not yet been dispatched.
-        name (str): Human-readable name. Generated using {job_name}-{index}.
+        name (str): Human-readable name. Generated using {experiment_name}-{index}.
         active_state (ActiveState): Run's active state. See active_state enum for behaviour documentation.
         success_state (SuccessState): Run's success state. See SuccessState enum for behaviour documentation.
-        params (dict[str, TOMLScalar]): Run's parameter set. Has one value from each of the parent Job's parameter lists.
+        params (dict[str, TOMLScalar]): Run's parameter set. Has one value from each of the parent Experiment's parameter lists.
     """
 
-    definition: JobDefinition
-    jid: int
+    definition: ExperimentDefinition
+    eid: int
     index: int
     rid: int
     wid: int | None = None
@@ -445,7 +449,7 @@ class Run(BaseModel):
     params: dict[str, TOMLScalar]
 
     def __str__(self) -> str:
-        """Return a string representation of the Job."""
+        """Return a string representation of the Run."""
         return f"Run({self.name})"
 
     def __hash__(self) -> int:
@@ -465,8 +469,8 @@ class Run(BaseModel):
 class WorkerState(StrEnum):
     """Possible states for Workers.
 
-    IDLE: Worker is not currently executing a Job.
-    WORKING: Worker is currently executing a Job.
+    IDLE: Worker is not currently executing an Experiment.
+    WORKING: Worker is currently executing an Experiment.
     DEAD: Worker is unreachable.
     """
 
@@ -482,7 +486,7 @@ class WorkerData(BaseModel):
         wid (int): Unique identifier - integer representation of a UUID.
         name (str): Human readable name. Does not have to be unique, but is encouraged to be.
         state (WorkerState): Worker's state. See WorkerState enum for behaviour documentation.
-        run: (int): If the worker is currently executing a Run, this attribute sotres that Run's ID.
+        run: (int): If the worker is currently executing a Run, this attribute stores that Run's ID.
     """
 
     wid: int
