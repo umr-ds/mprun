@@ -85,13 +85,9 @@ async def test_dispatch() -> None:
         retrieved = await manager.get_experiment(eid=experiment.eid)
         assert retrieved.active_state == ActiveState.RUNNING
 
-        found = False
-        for run in retrieved.runs:
-            if run == dispatched.run:
-                found = True
-                assert run.active_state == ActiveState.RUNNING
-                break
-        assert found
+        retrieved_run = retrieved.runs[dispatched.run.index]
+        assert retrieved_run.rid == dispatched.run.rid
+        assert retrieved_run.active_state == ActiveState.RUNNING
 
 
 @pytest.mark.asyncio
@@ -137,7 +133,7 @@ async def test_results_submit() -> None:
         assert result_path.is_file()
 
         retrieved = await manager.get_experiment(eid=experiment.eid)
-        submitted_run = next(r for r in retrieved.runs if r.rid == run.rid)
+        submitted_run = retrieved.runs[run.index]
         assert submitted_run.active_state == ActiveState.FINISHED
         assert submitted_run.success_state == SuccessState.SUCCESS
         assert retrieved.active_state == ActiveState.RUNNING

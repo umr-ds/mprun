@@ -226,12 +226,7 @@ class ExperimentManager:
             )
             await to_thread(_copy_to_file, results_archive, result_archive_path)
 
-            runs = [
-                other_run for other_run in experiment.runs if other_run.rid != run.rid
-            ]
-            runs.append(run)
-            experiment.runs = runs
-
+            experiment.runs[run.index] = run
             self._runs[run.rid] = run
 
             experiment.recalculate_state()
