@@ -421,6 +421,27 @@ class Experiment(BaseModel):
             runs=runs,
         )
 
+    def recalculate_state(self) -> None:
+        """Recalculates Experiment's state from its Run's states."""
+        if all(run.active_state == ActiveState.WAITING for run in self.runs):
+            # The Experiment's state is WAITING iff all Runs are WAITING
+            self.active_state = ActiveState.WAITING
+        elif all(run.active_state == ActiveState.FINISHED for run in self.runs):
+            # The Experiment's state is FINISHED iff all Runs are FINISHED
+            self.active_state = ActiveState.FINISHED
+        else:
+            # The Experiment's state is RUNNING if at least one Run is RUNNING or if all Runs are either WAITING or FINISHED
+            self.active_state = ActiveState.RUNNING
+
+        if all(run.success_state == SuccessState.SUCCESS for run in self.runs):
+            # The Experiment's state is SUCCESS iff all Runs are SUCCESS
+            self.success_state = SuccessState.SUCCESS
+        elif any(run.success_state == SuccessState.FAILED for run in self.runs):
+            # If any Run has failed, the entire Experiment is considered failed
+            self.success_state = SuccessState.FAILED
+        else:
+            self.success_state = SuccessState.PENDING
+
 
 class Run(BaseModel):
     """A single run of an Experiment.

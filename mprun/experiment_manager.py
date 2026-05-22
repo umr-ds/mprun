@@ -230,6 +230,8 @@ class ExperimentManager:
             experiment.runs = runs
 
             self._runs[run.rid] = run
+
+            experiment.recalculate_state()
             await self._update(experiment=experiment)
 
     async def commit(self, operation: PendingDispatch) -> None:
@@ -237,9 +239,7 @@ class ExperimentManager:
         async with self._state_mutex:
             operation.run.active_state = ActiveState.RUNNING
             operation.run.wid = operation.wid
-
-            if operation.experiment.active_state == ActiveState.WAITING:
-                operation.experiment.active_state = ActiveState.RUNNING
+            operation.experiment.recalculate_state()
 
             await self._update(experiment=operation.experiment)
 
