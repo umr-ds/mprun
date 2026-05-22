@@ -13,6 +13,7 @@ from mprun.models import (
     RESULTS_ARCHIVE_NAME,
     ActiveState,
     Experiment,
+    Run,
     SuccessState,
     WorkerData,
 )
@@ -255,9 +256,8 @@ async def test_results_upload() -> None:
 
             await worker.upload_results()
 
-            response = await client.get(f"/experiments/{run.eid}")
+            response = await client.get(f"/runs/{run.rid}")
             response.raise_for_status()
-            experiment = Experiment.model_validate(response.json())
-            submitted_run = next(r for r in experiment.runs if r.rid == run.rid)
+            submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED
             assert submitted_run.success_state == SuccessState.SUCCESS

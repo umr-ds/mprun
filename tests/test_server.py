@@ -123,6 +123,45 @@ class TestExperiments:
 class TestRuns:
     """Tests for Run-related endpoints."""
 
+    def test_run_get(self) -> None:
+        """Test '/runs/{rid}' endpoint."""
+        with (
+            TemporaryDirectory(delete=True) as test_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            directory = Path(test_dir)
+            mp.setenv(DATA_PATH_ENV, test_dir)
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            experiment_definition, experiment_definition_path = (
+                copy_experiment_to_test_environment(directory=directory)
+            )
+            archive_path = experiment_definition.create_archive(
+                experiment_toml=experiment_definition_path
+            )
+
+            with TestClient(server) as client, archive_path.open("rb") as archive_file:
+                # create experiment
+                response = client.post(
+                    "/experiments",
+                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    files={
+                        "archive": (
+                            "experiment_archive.zip",
+                            archive_file,
+                            "application/zip",
+                        )
+                    },
+                )
+                response.raise_for_status()
+                experiment = Experiment.model_validate(response.json())
+
+                for run in experiment.runs:
+                    response = client.get(f"/runs/{run.rid}")
+                    response.raise_for_status()
+                    retrieved_run = Run.model_validate(response.json())
+                    assert run == retrieved_run
+
     def test_run_dispatch(self) -> None:
         """Test '/runs/dispatch' endpoint."""
         with (
@@ -235,11 +274,8 @@ class TestRuns:
                 )
                 assert response.status_code == HTTPStatus.OK
 
-                response = client.get(
-                    "/experiments/" + str(run.eid),
-                )
+                response = client.get(f"/runs/{run.rid}")
                 response.raise_for_status()
-                experiment = Experiment.model_validate(response.json())
-                submitted_run = next(r for r in experiment.runs if r.rid == run.rid)
+                submitted_run = Run.model_validate(response.json())
                 assert submitted_run.active_state == ActiveState.FINISHED
                 assert submitted_run.success_state == SuccessState.SUCCESS
