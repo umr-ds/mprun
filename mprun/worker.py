@@ -338,7 +338,20 @@ class Worker:
 
     async def upload_results(self) -> None:
         """Upload Run results to server."""
-        # TODO: upload results
+        if self.working is None:
+            raise NoRunError
+
+        archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
+        logger.info(f"Uploading results for run {self.working.rid}")
+        with archive_path.open("rb") as f:
+            response = await self.http_client.post(
+                "/runs/result",
+                params={"wid": self.meta_data.wid},
+                data={"run": self.working.model_dump_json()},
+                files={"results_archive": (RESULTS_ARCHIVE_NAME, f, "application/zip")},
+            )
+        response.raise_for_status()
+        logger.debug("Results uploaded successfully")
 
     async def run(self) -> None:
         """Main loop for worker.
