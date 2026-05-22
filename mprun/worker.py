@@ -158,7 +158,7 @@ class Worker:
         """
         logger.debug("Have no work to do, asking the server...")
         async with self.http_client.stream(
-            "GET", "/workers/run", params={"wid": self.meta_data.wid}
+            "GET", "/runs/dispatch", params={"wid": self.meta_data.wid}
         ) as response:
             response.raise_for_status()
 

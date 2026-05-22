@@ -129,28 +129,8 @@ async def get_experiment(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
-async def register_worker(
-    name: str,
-    wm: WorkerManager = Depends(get_worker_manager),
-) -> WorkerData:
-    """Register a new worker."""
-    logger.debug("Received worker registration request")
-
-    return await wm.register(name=name)
-
-
-@server.get("/workers", response_model=list[WorkerData])
-async def list_workers(
-    wm: WorkerManager = Depends(get_worker_manager),
-) -> list[WorkerData]:
-    """Return all registered workers."""
-    logger.debug("Received worker list request")
-    return await wm.get_all()
-
-
-@server.get("/workers/run", response_model=None)
-async def get_run_for_worker(
+@server.get("/runs/dispatch", response_model=None)
+async def dispatch_run(
     wid: int,
     em: ExperimentManager = Depends(get_experiment_manager),
     wm: WorkerManager = Depends(get_worker_manager),
@@ -175,6 +155,26 @@ async def get_run_for_worker(
             )
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
+async def register_worker(
+    name: str,
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> WorkerData:
+    """Register a new worker."""
+    logger.debug("Received worker registration request")
+
+    return await wm.register(name=name)
+
+
+@server.get("/workers", response_model=list[WorkerData])
+async def list_workers(
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> list[WorkerData]:
+    """Return all registered workers."""
+    logger.debug("Received worker list request")
+    return await wm.get_all()
 
 
 @server.get("/workers/{wid}", response_model=WorkerData)
