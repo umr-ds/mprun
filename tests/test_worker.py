@@ -9,7 +9,13 @@ from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.models import RESULTS_ARCHIVE_NAME, Experiment, SuccessState, WorkerData
+from mprun.models import (
+    RESULTS_ARCHIVE_NAME,
+    ActiveState,
+    Experiment,
+    SuccessState,
+    WorkerData,
+)
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import Worker
 from tests.helpers.experiment_helper import (
@@ -191,3 +197,67 @@ async def test_collect_results(name: str) -> None:
             assert "test_dir/nested_file.txt" in contents
             assert "working_file.txt" in contents
             assert "working_dir/nested_working_file.txt" in contents
+
+
+@pytest.mark.asyncio
+async def test_results_upload() -> None:
+    """Test upload of results."""
+    with (
+        TemporaryDirectory(delete=True) as data_dir,
+        pytest.MonkeyPatch.context() as mp,
+    ):
+        directory = Path(data_dir)
+        mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
+
+        async with (
+            lifespan(server),
+            AsyncClient(
+                transport=ASGITransport(app=server), base_url="http://test"
+            ) as client,
+        ):
+            home_dir = Path(data_dir) / "worker"
+            metadata = await Worker.register(client=client, name="test_worker")
+            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+
+            # submit example experiment
+            experiment_definition, experiment_definition_path = (
+                copy_experiment_to_test_environment(directory=directory)
+            )
+            archive_path = experiment_definition.create_archive(
+                experiment_toml=experiment_definition_path
+            )
+            with archive_path.open("rb") as archive_file:
+                response = await client.post(
+                    "/experiments",
+                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    files={
+                        "archive": (
+                            "experiment_archive.zip",
+                            archive_file,
+                            "application/zip",
+                        )
+                    },
+                )
+                response.raise_for_status()
+
+            # now try getting work again
+            run = await worker.get_work()
+            assert run is not None
+            worker.working = run
+
+            run.active_state = ActiveState.FINISHED
+            run.success_state = SuccessState.SUCCESS
+
+            home_dir.mkdir(parents=True, exist_ok=True)
+            results_path = home_dir / RESULTS_ARCHIVE_NAME
+            with ZipFile(results_path, mode="w") as zf:
+                zf.writestr("result.txt", "ok")
+
+            await worker.upload_results()
+
+            response = await client.get(f"/experiments/{run.eid}")
+            response.raise_for_status()
+            experiment = Experiment.model_validate(response.json())
+            submitted_run = next(r for r in experiment.runs if r.rid == run.rid)
+            assert submitted_run.active_state == ActiveState.FINISHED
+            assert submitted_run.success_state == SuccessState.SUCCESS
