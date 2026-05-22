@@ -247,7 +247,8 @@ class ExperimentManager:
 
     async def cancel(self, operation: PendingDispatch) -> None:
         """Cancel a pending operation."""
-        self._pending_dispatches.remove(operation.run.rid)
+        async with self._state_mutex:
+            self._pending_dispatches.remove(operation.run.rid)
 
 
 @dataclass
