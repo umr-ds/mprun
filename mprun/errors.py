@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from mprun.types import RunId
+
 
 @dataclass(frozen=True)
 class ArchiveValidationError(ValueError):
@@ -63,14 +65,14 @@ class NoSuchRunError(LookupError):
     """Raised when trying to retrieve a Run that does not exist.
 
     Attributes:
-        rid (int): Non-existent Run's ID.
+        run_id (RunId): Non-existent Run's composite identity.
     """
 
-    rid: int
+    run_id: RunId
 
     def __str__(self) -> str:
         """Error's string representation."""
-        return f"Run with ID {self.rid} does not exist!"
+        return f"Run {self.run_id} does not exist!"
 
 
 @dataclass(frozen=True)

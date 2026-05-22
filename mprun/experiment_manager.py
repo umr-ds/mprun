@@ -16,11 +16,11 @@ from tinydb.table import Table
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
-    ActiveState,
     Experiment,
     ExperimentDefinition,
     Run,
 )
+from mprun.types import ActiveState, RunId
 
 
 def _copy_to_file(src: BinaryIO, dst: Path) -> None:
@@ -44,8 +44,8 @@ class ExperimentManager:
     _state_mutex: Lock
 
     _experiments: dict[int, Experiment]
-    _runs: dict[int, Run]
-    _pending_dispatches: set[int]
+    _runs: dict[RunId, Run]
+    _pending_dispatches: set[RunId]
 
     def __init__(self, data_path: Path) -> None:
         """Initialise ExperimentManager.
@@ -66,7 +66,7 @@ class ExperimentManager:
         for experiment in experiments:
             if experiment.active:
                 self._experiments[experiment.eid] = experiment
-                runs = {run.rid: run for run in experiment.runs}
+                runs = {run.run_id: run for run in experiment.runs}
                 self._runs.update(runs)
         self._pending_dispatches = set()
 
@@ -141,7 +141,7 @@ class ExperimentManager:
 
             await to_thread(self._experiments_table.insert, experiment.model_dump())
             self._experiments[experiment.eid] = experiment
-            runs = {run.rid: run for run in experiment.runs}
+            runs = {run.run_id: run for run in experiment.runs}
             self._runs.update(runs)
 
             return experiment
@@ -164,22 +164,24 @@ class ExperimentManager:
                 raise NoSuchExperimentError(eid=eid)
             return experiment
 
-    async def get_run(self, rid: int) -> Run:
-        """Get a Run by its ID.
+    async def get_run(self, eid: int, index: int) -> Run:
+        """Get a Run by its composite identity.
 
         Args:
-            rid (int): Run ID to look for.
+            eid (int): Parent experiment's ID.
+            index (int): Run's index within the experiment.
 
         Returns:
-            Run: Run with matching ID (if found).
+            Run: Run with matching identity (if found).
 
         Raises:
-            NoSuchRunError: If there is no Run with a matching ID.
+            NoSuchRunError: If there is no Run with a matching identity.
         """
         async with self._state_mutex:
-            if rid not in self._runs:
-                raise NoSuchRunError(rid=rid)
-            return self._runs[rid]
+            run_id = RunId(eid=eid, index=index)
+            if run_id not in self._runs:
+                raise NoSuchRunError(run_id=run_id)
+            return self._runs[run_id]
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Get a waiting Run.
@@ -199,13 +201,13 @@ class ExperimentManager:
                 runs = [
                     run
                     for run in experiment.waiting_runs
-                    if run.rid not in self._pending_dispatches
+                    if run.run_id not in self._pending_dispatches
                 ]
                 if not runs:
                     continue
 
                 run = runs[0]
-                self._pending_dispatches.add(run.rid)
+                self._pending_dispatches.add(run.run_id)
 
                 return PendingDispatch(manager=self, experiment=experiment, run=run)
 
@@ -214,20 +216,21 @@ class ExperimentManager:
     async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
         """Submit results from a run."""
         async with self._state_mutex:
-            if run.rid not in self._runs:
-                raise NoSuchRunError(rid=run.rid)
+            if run.run_id not in self._runs:
+                raise NoSuchRunError(run_id=run.run_id)
             if run.eid not in self._experiments:
                 raise NoSuchExperimentError(eid=run.eid)
 
             experiment = self._experiments[run.eid]
 
             result_archive_path = (
-                self._experiment_path(experiment=experiment) / f"results_{run.rid}.zip"
+                self._experiment_path(experiment=experiment)
+                / f"results_{run.eid}_{run.index}.zip"
             )
             await to_thread(_copy_to_file, results_archive, result_archive_path)
 
             experiment.runs[run.index] = run
-            self._runs[run.rid] = run
+            self._runs[run.run_id] = run
 
             experiment.recalculate_state()
             await self._update(experiment=experiment)
@@ -248,12 +251,12 @@ class ExperimentManager:
                 operation.experiment.recalculate_state()
                 raise
             finally:
-                self._pending_dispatches.discard(operation.run.rid)
+                self._pending_dispatches.discard(operation.run.run_id)
 
     async def cancel(self, operation: PendingDispatch) -> None:
         """Cancel a pending operation."""
         async with self._state_mutex:
-            self._pending_dispatches.discard(operation.run.rid)
+            self._pending_dispatches.discard(operation.run.run_id)
 
 
 @dataclass

@@ -12,8 +12,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.models import ActiveState, Experiment, Run, SuccessState, WorkerData
+from mprun.models import Experiment, Run, WorkerData
 from mprun.server import DATA_PATH_ENV, server
+from mprun.types import ActiveState, SuccessState
 from tests.helpers.experiment_helper import (
     TEST_EXPERIMENT,
     copy_experiment_to_test_environment,
@@ -157,7 +158,7 @@ class TestRuns:
                 experiment = Experiment.model_validate(response.json())
 
                 for run in experiment.runs:
-                    response = client.get(f"/runs/{run.rid}")
+                    response = client.get(f"/runs/{run.eid}/{run.index}")
                     response.raise_for_status()
                     retrieved_run = Run.model_validate(response.json())
                     assert run == retrieved_run
@@ -274,7 +275,7 @@ class TestRuns:
                 )
                 assert response.status_code == HTTPStatus.OK
 
-                response = client.get(f"/runs/{run.rid}")
+                response = client.get(f"/runs/{run.eid}/{run.index}")
                 response.raise_for_status()
                 submitted_run = Run.model_validate(response.json())
                 assert submitted_run.active_state == ActiveState.FINISHED

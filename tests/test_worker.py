@@ -256,7 +256,7 @@ async def test_results_upload() -> None:
 
             await worker.upload_results()
 
-            response = await client.get(f"/runs/{run.rid}")
+            response = await client.get(f"/runs/{run.eid}/{run.index}")
             response.raise_for_status()
             submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED

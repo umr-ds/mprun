@@ -9,6 +9,7 @@ __all__ = [
     "experiment_manager",
     "models",
     "server",
+    "types",
     "worker",
 ]
 

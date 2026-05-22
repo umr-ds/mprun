@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from mprun.errors import NoSuchRunError, NoSuchWorkerError
 from mprun.models import WorkerData, WorkerState
+from mprun.types import RunId
 
 
 class WorkerManager:
@@ -82,14 +83,14 @@ class WorkerManager:
 
             self.workers[wid].last_check_in = time()
 
-    async def assign_run(self, wid: int, rid: int) -> None:
+    async def assign_run(self, wid: int, run_id: RunId) -> None:
         """Assign Run to worker.
 
         Stores that woker is currently executing given Run and sets Worker's state to "WORKING".
 
         Args:
             wid (int): Worker's ID.
-            rid (int): Run's ID.
+            run_id (RunId): Run's composite identity.
 
         Raises:
             NoSuchWorkerError: If no worker with the given id exists.
@@ -100,16 +101,16 @@ class WorkerManager:
 
             worker = self.workers[wid]
             worker.state = WorkerState.WORKING
-            worker.run = rid
+            worker.run = run_id
 
-    async def unassign_run(self, wid: int, rid: int, state: WorkerState) -> None:
+    async def unassign_run(self, wid: int, run_id: RunId, state: WorkerState) -> None:
         """Unassign Run from worker.
 
         Either because the worker finished executing the run, or because it has died.
 
         Args:
             wid (int): Worker's ID.
-            rid (int): Run's ID.
+            run_id (RunId): Run's composite identity.
             state (WorkerState): Worker's new state after unassignment
 
         Raises:
@@ -120,8 +121,8 @@ class WorkerManager:
                 raise NoSuchWorkerError(wid=wid)
 
             worker = self.workers[wid]
-            if worker.run != rid:
-                raise NoSuchRunError(rid=rid)
+            if worker.run != run_id:
+                raise NoSuchRunError(run_id=run_id)
 
             worker.state = state
             worker.run = None

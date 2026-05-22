@@ -7,13 +7,14 @@ from itertools import product
 from os import X_OK, access
 from pathlib import Path
 from time import time
-from uuid import uuid4, uuid5
+from uuid import uuid4
 from zipfile import ZIP_LZMA, ZipFile
 
 from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
 
 from mprun.errors import ArchiveValidationError, InvalidParametersError
+from mprun.types import ActiveState, RunId, SuccessState
 
 type TOMLScalar = (
     str | int | float | bool
@@ -54,44 +55,6 @@ def _expand_parameters(
         expanded.append(dict(zip(keys, values, strict=True)))
 
     return expanded
-
-
-class ActiveState(StrEnum):
-    """Possible active states for both Experiments and Runs.
-
-    Meaning for Run:
-        WAITING: Run has not been dispatched.
-        RUNNING: Run has been dispatched, has not finished.
-        FINISHED: Run has finished.
-
-    Meaning for Experiment:
-        WAITING: All runs are waiting.
-        RUNNING: At least one run is running.
-        FINISHED: All runs have finished.
-    """
-
-    WAITING = "WAITING"
-    RUNNING = "RUNNING"
-    FINISHED = "FINISHED"
-
-
-class SuccessState(StrEnum):
-    """Possible success states for Experiments and Runs.
-
-    Meaning for Runs:
-        PENDING: This Run has not finished
-        SUCCESS: This Run has finished without error.
-        FAILED: This Run has finished with an error.
-
-    Meaning for Experiments:
-        PENDING: There are still Runs with state PENDING, no Runs with state FAILED
-        SUCCESS: All Runs have state SUCCESS
-        FAILED: At least one Run has state FAILED
-    """
-
-    PENDING = "PENDING"
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
 
 
 class ValidationMode(Enum):
@@ -403,7 +366,6 @@ class Experiment(BaseModel):
                 Run(
                     definition=definition,
                     eid=eid.int,
-                    rid=uuid5(namespace=eid, name=bytes(index)).int,
                     index=index,
                     name=f"{definition.name}-{index}",
                     active_state=active_state,
@@ -448,9 +410,7 @@ class Run(BaseModel):
 
     Attributes:
         eid (int): Experiment ID of the parent Experiment. (Integer representation of a UUID for serialisability)
-        index (int): Run's index amongst its brethren.
-        rid (int): Unique identifier for this Run. (Integer representation of a UUID for serialisability)
-                    Generated with uuid.uuid5, using parent's experiment ID as namespace and index as name.
+        index (int): Run's index amongst its brethren. Together with eid forms the unique RunId.
         wid (int | None): If this Run has been dispatched to a worker, this attribute contains the worker's ID.
                           None if Run has not yet been dispatched.
         name (str): Human-readable name. Generated using {experiment_name}-{index}.
@@ -462,7 +422,6 @@ class Run(BaseModel):
     definition: ExperimentDefinition
     eid: int
     index: int
-    rid: int
     wid: int | None = None
     name: str
     active_state: ActiveState
@@ -475,7 +434,12 @@ class Run(BaseModel):
 
     def __hash__(self) -> int:
         """Compute hash of Run."""
-        return hash(self.rid)
+        return hash(self.run_id)
+
+    @property
+    def run_id(self) -> RunId:
+        """Composite identity of this Run."""
+        return RunId(eid=self.eid, index=self.index)
 
     def assemble_args(self) -> list[str]:
         """Assemble parameters into arguments to pass to executable."""
@@ -514,7 +478,7 @@ class WorkerData(BaseModel):
     name: str
     state: WorkerState
     last_check_in: float
-    run: int | None = None
+    run: RunId | None = None
 
     @classmethod
     def new(cls, name: str) -> WorkerData:

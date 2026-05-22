@@ -147,7 +147,7 @@ async def dispatch_run(
             return Response(status_code=HTTPStatus.NO_CONTENT)
 
         async with pending:
-            await wm.assign_run(wid=wid, rid=pending.run.rid)
+            await wm.assign_run(wid=wid, run_id=pending.run.run_id)
             archive_path = pending.finalise(wid=wid)
             return FileResponse(
                 path=archive_path,
@@ -171,7 +171,7 @@ async def run_results(
     try:
         run_data = Run.model_validate_json(run)
 
-        await wm.unassign_run(wid=wid, rid=run_data.rid, state=WorkerState.IDLE)
+        await wm.unassign_run(wid=wid, run_id=run_data.run_id, state=WorkerState.IDLE)
         await em.submit_run_results(run=run_data, results_archive=results_archive.file)
 
         return Response(status_code=HTTPStatus.OK)
@@ -183,14 +183,15 @@ async def run_results(
         ) from err
 
 
-@server.get("/runs/{rid}", response_model=Run)
+@server.get("/runs/{eid}/{index}", response_model=Run)
 async def get_run(
-    rid: int,
+    eid: int,
+    index: int,
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> Run:
-    """Get a single Run by its ID."""
+    """Get a single Run by its composite identity (experiment ID + index)."""
     try:
-        return await em.get_run(rid=rid)
+        return await em.get_run(eid=eid, index=index)
     except NoSuchRunError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 

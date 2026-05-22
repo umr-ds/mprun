@@ -25,9 +25,9 @@ from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     RESULTS_ARCHIVE_NAME,
     Run,
-    SuccessState,
     WorkerData,
 )
+from mprun.types import SuccessState
 
 logger = logging.getLogger(__name__)
 cli = Typer()
@@ -167,7 +167,7 @@ class Worker:
                 return None
 
             run = Run.model_validate_json(response.headers["X-Run"], strict=True)
-            logger.debug(f"Received run: {run.rid}")
+            logger.debug(f"Received run: {run.run_id}")
 
             with TemporaryDirectory(delete=True) as archive_dir:
                 logger.debug("Saving Experiment archive")
@@ -199,7 +199,7 @@ class Worker:
         if self.working is None:
             raise NoRunError
 
-        logger.info(f"Executing Run {self.working.rid}")
+        logger.info(f"Executing Run {self.working.run_id}")
         env = await self.prepare_run_environment()
 
         if self.working.definition.setup_executable is not None:
@@ -342,7 +342,7 @@ class Worker:
             raise NoRunError
 
         archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
-        logger.info(f"Uploading results for run {self.working.rid}")
+        logger.info(f"Uploading results for run {self.working.run_id}")
         with archive_path.open("rb") as f:
             response = await self.http_client.post(
                 "/runs/result",

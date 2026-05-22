@@ -8,7 +8,8 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from mprun.experiment_manager import ExperimentManager, PendingDispatch
-from mprun.models import EXPERIMENT_ARCHIVE_NAME, ActiveState, Experiment, SuccessState
+from mprun.models import EXPERIMENT_ARCHIVE_NAME, Experiment
+from mprun.types import ActiveState, SuccessState
 from tests.helpers.experiment_helper import copy_experiment_to_test_environment
 
 
@@ -86,7 +87,7 @@ async def test_dispatch() -> None:
         assert retrieved.active_state == ActiveState.RUNNING
 
         retrieved_run = retrieved.runs[dispatched.run.index]
-        assert retrieved_run.rid == dispatched.run.rid
+        assert retrieved_run.run_id == dispatched.run.run_id
         assert retrieved_run.active_state == ActiveState.RUNNING
 
 
@@ -128,7 +129,9 @@ async def test_results_submit() -> None:
         await manager.submit_run_results(run=run, results_archive=buf)
 
         result_path = (
-            manager._data_path / str(experiment.eid) / f"results_{run.rid}.zip"
+            manager._data_path
+            / str(experiment.eid)
+            / f"results_{run.eid}_{run.index}.zip"
         )
         assert result_path.is_file()
 
