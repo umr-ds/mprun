@@ -151,6 +151,7 @@ async def dispatch_run(
             archive_path = pending.finalise(wid=wid)
             return FileResponse(
                 path=archive_path,
+                status_code=HTTPStatus.OK,
                 media_type="application/zip",
                 headers={"X-Run": pending.run.model_dump_json()},
             )
