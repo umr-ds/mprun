@@ -23,6 +23,11 @@ from mprun.models import (
 )
 
 
+def _copy_to_file(src: BinaryIO, dst: Path) -> None:
+    with dst.open("wb") as f:
+        copyfileobj(src, f)
+
+
 class ExperimentManager:
     """Manages (creates, deletes, dispatches, etc) Experiments.
 
@@ -122,13 +127,12 @@ class ExperimentManager:
             with TemporaryDirectory(delete=True) as tmp_dir:
                 # copy archive to temporary directory for validation
                 tmp_archive = Path(tmp_dir) / EXPERIMENT_ARCHIVE_NAME
-                with tmp_archive.open("wb") as f:
-                    await to_thread(copyfileobj, archive, f)
+                await to_thread(_copy_to_file, archive, tmp_archive)
                 definition.validate_archive(archive_path=tmp_archive)
 
                 # if validation successful, store archive permanently
                 experiment_path = self._experiment_path(experiment=experiment)
-                experiment_path.mkdir(parents=False, exist_ok=False)
+                await to_thread(experiment_path.mkdir, parents=False, exist_ok=False)
                 experiment_archive = experiment_path / EXPERIMENT_ARCHIVE_NAME
 
                 await to_thread(
@@ -220,8 +224,7 @@ class ExperimentManager:
             result_archive_path = (
                 self._experiment_path(experiment=experiment) / f"results_{run.rid}.zip"
             )
-            with result_archive_path.open("wb") as f:
-                await to_thread(copyfileobj, results_archive, f)
+            await to_thread(_copy_to_file, results_archive, result_archive_path)
 
             runs = [
                 other_run for other_run in experiment.runs if other_run.rid != run.rid
