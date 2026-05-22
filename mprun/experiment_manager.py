@@ -237,13 +237,20 @@ class ExperimentManager:
     async def commit(self, operation: PendingDispatch) -> None:
         """Commit a pending operation and modify local state accordingly."""
         async with self._state_mutex:
+            prev_active = operation.run.active_state
+            prev_wid = operation.run.wid
             operation.run.active_state = ActiveState.RUNNING
             operation.run.wid = operation.wid
             operation.experiment.recalculate_state()
-
-            await self._update(experiment=operation.experiment)
-
-            self._pending_dispatches.discard(operation.run.rid)
+            try:
+                await self._update(experiment=operation.experiment)
+            except OSError:
+                operation.run.active_state = prev_active
+                operation.run.wid = prev_wid
+                operation.experiment.recalculate_state()
+                raise
+            finally:
+                self._pending_dispatches.discard(operation.run.rid)
 
     async def cancel(self, operation: PendingDispatch) -> None:
         """Cancel a pending operation."""
