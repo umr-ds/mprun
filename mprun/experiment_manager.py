@@ -210,7 +210,7 @@ class ExperimentManager:
     async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
         """Submit results from a run."""
         async with self._state_mutex:
-            if run not in self._runs:
+            if run.rid not in self._runs:
                 raise NoSuchRunError(rid=run.rid)
             if run.eid not in self._experiments:
                 raise NoSuchExperimentError(eid=run.eid)
