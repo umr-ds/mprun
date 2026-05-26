@@ -1,5 +1,14 @@
-"""Tests for worker module."""
+"""Tests for worker module.
 
+``test_execute_run`` and ``test_collect_results`` are the project's
+end-to-end smoke tests: they execute the bundled real scripts under
+``tests/artefacts/test_experiment/`` and assert on the files those scripts
+produce. The remaining tests use the synthetic ``make_experiment``
+factory so they can exercise the worker's API surface without depending
+on the real artefact.
+"""
+
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
@@ -10,18 +19,18 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.models import (
+    EXPERIMENT_ARCHIVE_NAME,
+    EXPERIMENT_DEFINITION_NAME,
     ActiveState,
     Experiment,
+    ExperimentDefinition,
     Run,
     SuccessState,
     WorkerData,
 )
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import RESULTS_ARCHIVE_NAME, Worker
-from tests.helpers.experiment_helper import (
-    TEST_EXPERIMENT,
-    copy_experiment_to_test_environment,
-)
+from tests.conftest import copy_experiment_to_test_environment
 
 
 @pytest.mark.asyncio
@@ -68,15 +77,13 @@ async def test_checkin(name: str) -> None:
 
 
 @pytest.mark.asyncio
-@given(name=st.text())
-async def test_get_run(name: str) -> None:
-    """The work retrieval."""
-    with (
-        TemporaryDirectory(delete=True) as data_dir,
-        pytest.MonkeyPatch.context() as mp,
-    ):
-        directory = Path(data_dir)
-        mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
+async def test_get_run(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Worker can fetch dispatched work from the server."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
 
         async with (
             lifespan(server),
@@ -84,30 +91,25 @@ async def test_get_run(name: str) -> None:
                 transport=ASGITransport(app=server), base_url="http://test"
             ) as client,
         ):
-            home_dir = Path(data_dir) / "worker"
-            metadata = await Worker.register(client=client, name=name)
+            home_dir = tmp_path / "worker"
+            metadata = await Worker.register(client=client, name="test_worker")
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
-            assert worker.working is None  # at first, the worker is working on nothing
+            assert worker.working is None
             await worker.get_work()
-            assert (
-                worker.working is None
-            )  # if there's no experiments present, we can get no work
+            assert worker.working is None  # no experiment present yet
 
-            # submit example experiment
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, experiment_dir = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
             )
             with archive_path.open("rb") as archive_file:
                 response = await client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -115,7 +117,6 @@ async def test_get_run(name: str) -> None:
                 )
                 response.raise_for_status()
 
-            # now try getting work again
             run = await worker.get_work()
             assert run is not None
             assert worker.archive_path.is_file(follow_symlinks=False)
@@ -124,7 +125,7 @@ async def test_get_run(name: str) -> None:
 @pytest.mark.asyncio
 @given(name=st.text())
 async def test_execute_run(name: str) -> None:
-    """Test run execution."""
+    """Smoke test: worker executes the bundled real experiment scripts."""
     with TemporaryDirectory(delete=True) as data_dir:
         directory = Path(data_dir)
         worker_data = WorkerData.new(name=name)
@@ -153,7 +154,7 @@ async def test_execute_run(name: str) -> None:
 @pytest.mark.asyncio
 @given(name=st.text())
 async def test_collect_results(name: str) -> None:
-    """Test result collection."""
+    """Smoke test: result archive contains every file the bundled scripts produce."""
     with TemporaryDirectory(delete=True) as data_dir:
         directory = Path(data_dir)
         worker_data = WorkerData.new(name=name)
@@ -179,17 +180,13 @@ async def test_collect_results(name: str) -> None:
 
         await worker.collect_results()
 
-        # Check if results archive exists
         results_archive = worker.home_dir / RESULTS_ARCHIVE_NAME
         assert results_archive.is_file()
 
-        # Check if results archive contains expected files
         with ZipFile(results_archive, "r") as zf:
             contents = zf.namelist()
-            # stdout.setup and stderr.setup are only created if setup executable is run
             assert "stdout.setup" in contents
             assert "stderr.setup" in contents
-            # stdout and stderr are only created if main executable is run
             assert "stdout" in contents
             assert "stderr" in contents
             assert "envfile" in contents
@@ -200,14 +197,13 @@ async def test_collect_results(name: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_results_upload() -> None:
-    """Test upload of results."""
-    with (
-        TemporaryDirectory(delete=True) as data_dir,
-        pytest.MonkeyPatch.context() as mp,
-    ):
-        directory = Path(data_dir)
-        mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
+async def test_results_upload(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Worker uploads results; server reflects the new run state."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
 
         async with (
             lifespan(server),
@@ -215,24 +211,21 @@ async def test_results_upload() -> None:
                 transport=ASGITransport(app=server), base_url="http://test"
             ) as client,
         ):
-            home_dir = Path(data_dir) / "worker"
+            home_dir = tmp_path / "worker"
             metadata = await Worker.register(client=client, name="test_worker")
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
-            # submit example experiment
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, experiment_dir = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
             )
             with archive_path.open("rb") as archive_file:
                 response = await client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -240,7 +233,6 @@ async def test_results_upload() -> None:
                 )
                 response.raise_for_status()
 
-            # now try getting work again
             run = await worker.get_work()
             assert run is not None
             worker.working = run

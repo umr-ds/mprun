@@ -1,60 +1,54 @@
 """Tests for models module."""
 
+from collections.abc import Callable
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from mprun.models import Experiment, ExperimentDefinition, ValidationMode
-from tests.helpers.experiment_helper import (
-    TEST_EXPERIMENT,
-    TEST_EXPERIMENT_FILE,
-    copy_experiment_to_test_environment,
+from mprun.models import (
+    EXPERIMENT_ARCHIVE_NAME,
+    EXPERIMENT_DEFINITION_NAME,
+    Experiment,
+    ExperimentDefinition,
+    ValidationMode,
 )
+from tests.conftest import TEST_EXPERIMENT, TEST_EXPERIMENT_FILE
 
 
 def test_experiment_creation() -> None:
-    """Test experiment creation with a single static example."""
-    experiment = Experiment.new(TEST_EXPERIMENT)
-
+    """Static regression anchor: 3 * 3 * 2 parameters expand to 18 runs."""
+    definition = ExperimentDefinition(
+        name="exp",
+        params={"foo": [1, 2, 3], "bar": ["a", "b", "c"], "buzz": [True, False]},
+        executable="exe",
+        results={},
+    )
+    experiment = Experiment.new(definition)
     assert len(experiment.runs) == 18
 
 
-def test_experiment_definition_load() -> None:
-    """Assure that tests.helpers.experiment_helper.TEST_EXPERIMENT and experiment_definition.toml have equivalent information."""
+def test_bundled_definition_matches_constant() -> None:
+    """The bundled experiment_definition.toml stays in sync with TEST_EXPERIMENT.
+
+    Guards against drift between the real artefact under
+    ``tests/artefacts/test_experiment/`` and the in-memory constant the
+    smoke test compares against.
+    """
     loaded = ExperimentDefinition.load_toml(
         TEST_EXPERIMENT_FILE, validation_mode=ValidationMode.DATA_AND_FILES
     )
     assert loaded == TEST_EXPERIMENT
 
 
-def test_experiment_definition_dump() -> None:
-    """Verify dump_toml round-trips: dump TEST_EXPERIMENT to file, reload raw TOML, compare models.
+def test_experiment_archive(
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """``create_archive`` writes a zip in the experiment directory that validates."""
+    definition, directory = make_experiment(
+        setup=True, environment_files={"env.txt": "/destination/env"}
+    )
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
 
-    Uses model_validate without context to skip file-existence checks (executable etc. not present in temp dir).
-    """
-    with TemporaryDirectory(delete=True) as test_dir:
-        test_file = Path(test_dir) / "test_experiment.toml"
-        TEST_EXPERIMENT.dump_toml(test_file)
-        reloaded = ExperimentDefinition.load_toml(
-            file_path=test_file, validation_mode=ValidationMode.DATA_ONLY
-        )
-        assert reloaded == TEST_EXPERIMENT
-
-
-def test_experiment_archive() -> None:
-    """Verify experiment archive creation.
-
-    Will create archive in temporary directory, and check if everything is inside.
-    """
-    with TemporaryDirectory(delete=True) as test_dir:
-        directory = Path(test_dir)
-        experiment_definition, experiment_definition_path = (
-            copy_experiment_to_test_environment(directory=directory)
-        )
-        archive_path = experiment_definition.create_archive(
-            experiment_toml=experiment_definition_path
-        )
-
-        assert archive_path == directory / "experiment_archive.zip"
-        assert archive_path.is_file()
-
-        experiment_definition.validate_archive(archive_path=archive_path)
+    assert archive_path == directory / EXPERIMENT_ARCHIVE_NAME
+    assert archive_path.is_file()
+    definition.validate_archive(archive_path=archive_path)

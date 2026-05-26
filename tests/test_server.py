@@ -1,6 +1,7 @@
 """Tests for server module."""
 
 import zipfile
+from collections.abc import Callable
 from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
@@ -12,13 +13,16 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.models import Experiment, Run, WorkerData
+from mprun.models import (
+    EXPERIMENT_ARCHIVE_NAME,
+    EXPERIMENT_DEFINITION_NAME,
+    Experiment,
+    ExperimentDefinition,
+    Run,
+    WorkerData,
+)
 from mprun.server import DATA_PATH_ENV, server
 from mprun.types import ActiveState, SuccessState
-from tests.helpers.experiment_helper import (
-    TEST_EXPERIMENT,
-    copy_experiment_to_test_environment,
-)
 
 
 class TestWorkers:
@@ -86,30 +90,28 @@ class TestWorkers:
 class TestExperiments:
     """Tests for Experiment-related endpoints."""
 
-    def test_create_experiment(self) -> None:
-        """Test experiment creation."""
-        with (
-            TemporaryDirectory(delete=True) as test_dir,
-            pytest.MonkeyPatch.context() as mp,
-        ):
-            directory = Path(test_dir)
-            mp.setenv(DATA_PATH_ENV, test_dir)
+    def test_create_experiment(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /experiments persists the definition and echoes it back."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, directory = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
             )
 
             with TestClient(server) as client, archive_path.open("rb") as archive_file:
                 response = client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -117,38 +119,35 @@ class TestExperiments:
                 )
                 assert response.status_code == HTTPStatus.CREATED
                 experiment = Experiment.model_validate(response.json())
-                assert experiment.name == TEST_EXPERIMENT.name
-                assert experiment.definition.params == TEST_EXPERIMENT.params
+                assert experiment.name == definition.name
+                assert experiment.definition.params == definition.params
 
 
 class TestRuns:
     """Tests for Run-related endpoints."""
 
-    def test_run_get(self) -> None:
-        """Test '/runs/{rid}' endpoint."""
-        with (
-            TemporaryDirectory(delete=True) as test_dir,
-            pytest.MonkeyPatch.context() as mp,
-        ):
-            directory = Path(test_dir)
-            mp.setenv(DATA_PATH_ENV, test_dir)
+    def test_run_get(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """GET /runs/{eid}/{index} returns every run that the experiment expanded into."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, directory = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
             )
 
             with TestClient(server) as client, archive_path.open("rb") as archive_file:
-                # create experiment
                 response = client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -163,31 +162,28 @@ class TestRuns:
                     retrieved_run = Run.model_validate(response.json())
                     assert run == retrieved_run
 
-    def test_run_dispatch(self) -> None:
-        """Test '/runs/dispatch' endpoint."""
-        with (
-            TemporaryDirectory(delete=True) as test_dir,
-            pytest.MonkeyPatch.context() as mp,
-        ):
-            directory = Path(test_dir)
-            mp.setenv(DATA_PATH_ENV, test_dir)
+    def test_run_dispatch(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """GET /runs/dispatch streams back the experiment's archive."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, directory = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
             )
 
             with TestClient(server) as client, archive_path.open("rb") as archive_file:
-                # create experiment
                 response = client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -196,12 +192,10 @@ class TestRuns:
                 response.raise_for_status()
                 experiment = Experiment.model_validate(response.json())
 
-                # register dummy worker
                 response = client.post("/workers", params={"name": "testworker"})
                 response.raise_for_status()
                 worker = WorkerData.model_validate(response.json())
 
-                # attempt to dispatch a run to this worker
                 response = client.get("/runs/dispatch", params={"wid": worker.wid})
                 response.raise_for_status()
                 assert response.status_code == HTTPStatus.OK
@@ -209,38 +203,35 @@ class TestRuns:
                 run = Run.model_validate_json(response.headers["X-Run"], strict=True)
                 assert run.eid == experiment.eid
 
-                archive_path = directory / "test_archive.zip"
-                with archive_path.open("wb") as f:
+                downloaded_archive = tmp_path / "downloaded.zip"
+                with downloaded_archive.open("wb") as f:
                     for chunk in response.iter_bytes():
                         f.write(chunk)
 
-                run.definition.validate_archive(archive_path=archive_path)
+                run.definition.validate_archive(archive_path=downloaded_archive)
 
-    def test_run_results_submission(self) -> None:
-        """Test '/runs/result' endpoint."""
-        with (
-            TemporaryDirectory(delete=True) as test_dir,
-            pytest.MonkeyPatch.context() as mp,
-        ):
-            directory = Path(test_dir)
-            mp.setenv(DATA_PATH_ENV, test_dir)
+    def test_run_results_submission(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /runs/result persists submitted state and results archive."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
-            experiment_definition, experiment_definition_path = (
-                copy_experiment_to_test_environment(directory=directory)
-            )
-            archive_path = experiment_definition.create_archive(
-                experiment_toml=experiment_definition_path
+            definition, directory = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
             )
 
             with TestClient(server) as client, archive_path.open("rb") as archive_file:
-                # create experiment
                 response = client.post(
                     "/experiments",
-                    data={"experiment_definition": TEST_EXPERIMENT.model_dump_json()},
+                    data={"experiment_definition": definition.model_dump_json()},
                     files={
                         "archive": (
-                            "experiment_archive.zip",
+                            EXPERIMENT_ARCHIVE_NAME,
                             archive_file,
                             "application/zip",
                         )
@@ -248,12 +239,10 @@ class TestRuns:
                 )
                 response.raise_for_status()
 
-                # register dummy worker
                 response = client.post("/workers", params={"name": "testworker"})
                 response.raise_for_status()
                 worker = WorkerData.model_validate(response.json())
 
-                # attempt to dispatch a run to this worker
                 response = client.get("/runs/dispatch", params={"wid": worker.wid})
                 response.raise_for_status()
 
