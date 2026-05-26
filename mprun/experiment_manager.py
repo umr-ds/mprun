@@ -146,6 +146,17 @@ class ExperimentManager:
 
             return experiment
 
+    async def _get_experiment_from_db(self, eid: int) -> Experiment | None:
+        """Fetch a single experiment from TinyDB by eid.
+
+        *IMPORTANT*: This method is *NOT* thread safe. The caller MUST have locked the manager's state_mutex before calling.
+        """
+        q = Query()
+        docs = await to_thread(self._experiments_table.search, q.eid == eid)
+        if not docs:
+            return None
+        return Experiment.model_validate(docs[0])
+
     async def get_experiment(self, eid: int) -> Experiment:
         """Get an Experiment by its ID.
 
@@ -160,16 +171,18 @@ class ExperimentManager:
         """
         async with self._state_mutex:
             experiment = self._experiments.get(eid)
+            if experiment is not None:
+                return experiment
+            experiment = await self._get_experiment_from_db(eid)
             if experiment is None:
                 raise NoSuchExperimentError(eid=eid)
             return experiment
 
-    async def get_run(self, eid: int, index: int) -> Run:
+    async def get_run(self, rid: RunId) -> Run:
         """Get a Run by its composite identity.
 
         Args:
-            eid (int): Parent experiment's ID.
-            index (int): Run's index within the experiment.
+            rid (RunId): Composite run identity (eid + index).
 
         Returns:
             Run: Run with matching identity (if found).
@@ -178,10 +191,13 @@ class ExperimentManager:
             NoSuchRunError: If there is no Run with a matching identity.
         """
         async with self._state_mutex:
-            run_id = RunId(eid=eid, index=index)
-            if run_id not in self._runs:
-                raise NoSuchRunError(run_id=run_id)
-            return self._runs[run_id]
+            run = self._runs.get(rid)
+            if run is not None:
+                return run
+            experiment = await self._get_experiment_from_db(rid.eid)
+            if experiment is None or rid.index < 0 or rid.index >= len(experiment.runs):
+                raise NoSuchRunError(run_id=rid)
+            return experiment.runs[rid.index]
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Get a waiting Run.
@@ -234,6 +250,12 @@ class ExperimentManager:
 
             experiment.recalculate_state()
             await self._update(experiment=experiment)
+
+            # if the experiment is finished now, we can evict it from memory
+            if not experiment.active:
+                del self._experiments[experiment.eid]
+                for finished_run in experiment.runs:
+                    self._runs.pop(finished_run.run_id, None)
 
     async def commit(self, operation: PendingDispatch) -> None:
         """Commit a pending operation and modify local state accordingly."""

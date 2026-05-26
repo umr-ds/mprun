@@ -34,6 +34,7 @@ from mprun.errors import (
 )
 from mprun.experiment_manager import ExperimentManager
 from mprun.models import Experiment, ExperimentDefinition, Run, WorkerData, WorkerState
+from mprun.types import RunId
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -191,7 +192,7 @@ async def get_run(
 ) -> Run:
     """Get a single Run by its composite identity (experiment ID + index)."""
     try:
-        return await em.get_run(eid=eid, index=index)
+        return await em.get_run(rid=RunId(eid=eid, index=index))
     except NoSuchRunError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
