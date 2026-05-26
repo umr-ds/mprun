@@ -56,9 +56,9 @@ def _print_experiment(experiment: Experiment) -> None:
     )
     console.print(table)
 
-    table = Table("Name", "Active", "Success", title="Runs")
+    table = Table("ID", "Active", "Success", title="Runs")
     for run in experiment.runs:
-        table.add_row(run.name, run.active_state, run.success_state)
+        table.add_row(str(run.run_id), run.active_state, run.success_state)
     console.print(table)
 
 
