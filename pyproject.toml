@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build~=0.11.7"]
+requires = ["uv_build~=0.11.16"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -40,10 +40,10 @@ dependencies = [
 
 [dependency-groups]
 server = [
-    "uvicorn~=0.46.0",
-    "fastapi~=0.136.1",
+    "uvicorn~=0.48.0",
+    "fastapi~=0.136.3",
     "tinydb~=4.8.2",
-    "python-multipart~=0.0.28",
+    "python-multipart~=0.0.29",
 ]
 client = [
     "httpx~=0.28.1",
@@ -54,11 +54,11 @@ worker = [
 dev = [
     "pre-commit~=4.6.0",
     "hatchling~=1.29.0",
-    "ruff~=0.15.12",
-    "ty~=0.0.35",
+    "ruff~=0.15.14",
+    "ty~=0.0.39",
     "pytest~=9.0.3",
-    "pytest-asyncio~=1.3.0",
-    "hypothesis~=6.152.5",
+    "pytest-asyncio~=1.4.0",
+    "hypothesis~=6.153.0",
     "vermin~=1.8.0",
     "pytest-cov~=7.1.0",
 ]
@@ -183,7 +183,16 @@ docstring-code-format = true
 docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form", "typer.Option", "typer.Argument", "Option", "Argument"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.File",
+    "fastapi.Form",
+    "typer.Option",
+    "typer.Argument",
+    "Option",
+    "Argument"
+]
 
 [tool.ty.rules]
 all = "error"
