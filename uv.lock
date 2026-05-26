@@ -292,6 +292,7 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
+    { name = "pytimeparse2" },
     { name = "tomlkit" },
     { name = "typer" },
 ]
@@ -324,6 +325,7 @@ worker = [
 [package.metadata]
 requires-dist = [
     { name = "pydantic", specifier = "~=2.13.4" },
+    { name = "pytimeparse2", specifier = "~=1.7.1" },
     { name = "tomlkit", specifier = "~=0.15.0" },
     { name = "typer", specifier = "~=0.25.1" },
 ]
@@ -552,6 +554,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4e/fe/70bd71a6738b09a0bdf6480ca6436b167469ca4578b2a0efbe390b4b0e70/python_multipart-0.0.29.tar.gz", hash = "sha256:643e93849196645e2dbdd81a0f8829a23123ad7f797a84a364c6fb3563f18904", size = 45678, upload-time = "2026-05-17T17:29:47.654Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/cb/769cfc37177252872a45a71f3fbdde9d51b471a3f3c14bfe95dde3407386/python_multipart-0.0.29-py3-none-any.whl", hash = "sha256:2ddcc971cef266225f54f552d8fa10bcfbb1f14446caec199060daac59ff2d69", size = 29640, upload-time = "2026-05-17T17:29:45.69Z" },
+]
+
+[[package]]
+name = "pytimeparse2"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/10/cc63fecd69905eb4d300fe71bd580e4a631483e9f53fdcb8c0ad345ce832/pytimeparse2-1.7.1.tar.gz", hash = "sha256:98668cdcba4890e1789e432e8ea0059ccf72402f13f5d52be15bdfaeb3a8b253", size = 10431, upload-time = "2023-05-11T21:40:55.774Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/17/9e/85abf91ef5df452f56498927affdb7128194d15644084f6c6722477c305b/pytimeparse2-1.7.1-py3-none-any.whl", hash = "sha256:a162ea6a7707fd0bb82dd99556efb783935f51885c8bdced0fce3fffe85ab002", size = 6136, upload-time = "2023-05-11T21:40:46.051Z" },
 ]
 
 [[package]]

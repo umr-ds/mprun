@@ -10,6 +10,7 @@ from time import time
 from uuid import uuid4
 from zipfile import ZIP_LZMA, ZipFile
 
+import pytimeparse2
 from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
 
@@ -85,6 +86,7 @@ class ExperimentDefinition(BaseModel):
     params: dict[str, list[TOMLScalar]]
     executable: str
     results: dict[str, str]
+    timeout: int | None = None
     setup_executable: str | None = None
     environment_variables: dict[str, str] | None = None
     environment_files: dict[str, str] | None = None
@@ -112,13 +114,19 @@ class ExperimentDefinition(BaseModel):
         Raises:
             OSError: If reading file fails
             pydantic.ValidationError: If contents of file are not valid ExperimentDefinition
+            ValueError: If a timeout-string is given, but does not parse successfully
         """
         with file_path.open("r") as f:
+            data = load(f).unwrap()
+
+            if isinstance(data.get("timeout"), str):
+                data["timeout"] = pytimeparse2.parse(
+                    data["timeout"], raise_exception=True
+                )
+
             if validation_mode == ValidationMode.DATA_ONLY:
-                return cls.model_validate(load(f).unwrap(), strict=True)
-            return cls.model_validate(
-                load(f).unwrap(), strict=True, context=file_path.parent
-            )
+                return cls.model_validate(data, strict=True)
+            return cls.model_validate(data, strict=True, context=file_path.parent)
 
     @field_validator("executable", mode="after")
     @classmethod

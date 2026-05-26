@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import asyncio.subprocess
 import logging
-from asyncio import Lock, Task, create_task, sleep, to_thread
+from asyncio import Lock, Task, create_task, sleep, to_thread, wait_for
 from http import HTTPStatus
 from os import environ, getenv
 from pathlib import Path
@@ -219,7 +219,14 @@ class Worker:
                     cwd=self.execution_dir,
                     env=env,
                 )
-                await process.wait()
+                if self.working.definition.timeout:
+                    try:
+                        await wait_for(process.wait(), self.working.definition.timeout)
+                    except TimeoutError:
+                        process.kill()
+                        return SuccessState.FAILED
+                else:
+                    await process.wait()
                 if process.returncode != 0:
                     return SuccessState.FAILED
 
@@ -242,10 +249,17 @@ class Worker:
                 cwd=self.execution_dir,
                 env=env,
             )
-            await process.wait()
-            if process.returncode == 0:
-                return SuccessState.SUCCESS
-            return SuccessState.FAILED
+            if self.working.definition.timeout:
+                try:
+                    await wait_for(process.wait(), self.working.definition.timeout)
+                except TimeoutError:
+                    process.kill()
+                    return SuccessState.FAILED
+            else:
+                await process.wait()
+            if process.returncode != 0:
+                return SuccessState.FAILED
+            return SuccessState.SUCCESS
 
     async def prepare_run_environment(self) -> dict[str, str]:
         """Prepare environment for Run execution."""

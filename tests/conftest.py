@@ -88,6 +88,7 @@ class ExperimentKwargs(TypedDict, total=False):
     results: dict[str, str] | None
     environment_variables: dict[str, str] | None
     environment_files: dict[str, str] | None
+    timeout: int | None
 
 
 def build_experiment(  # noqa: PLR0913
@@ -102,6 +103,7 @@ def build_experiment(  # noqa: PLR0913
     results: dict[str, str] | None = None,
     environment_variables: dict[str, str] | None = None,
     environment_files: dict[str, str] | None = None,
+    timeout: int | None = None,
 ) -> tuple[ExperimentDefinition, Path]:
     """Materialise a minimal Experiment inside ``directory``.
 
@@ -137,6 +139,7 @@ def build_experiment(  # noqa: PLR0913
         results=results if results is not None else {"out.txt": "out.txt"},
         environment_variables=environment_variables,
         environment_files=environment_files,
+        timeout=timeout,
     )
     definition.dump_toml(directory / EXPERIMENT_DEFINITION_NAME)
 

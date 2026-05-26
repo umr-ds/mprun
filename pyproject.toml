@@ -36,6 +36,7 @@ dependencies = [
     "pydantic~=2.13.4",
     "typer~=0.25.1",
     "tomlkit~=0.15.0",
+    "pytimeparse2~=1.7.1",
 ]
 
 [dependency-groups]
