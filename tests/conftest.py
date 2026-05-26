@@ -71,8 +71,8 @@ def copy_experiment_to_test_environment(
 _STUB_SCRIPT = "#!/usr/bin/env python3\npass\n"
 
 
-def _write_executable(path: Path) -> None:
-    path.write_text(_STUB_SCRIPT)
+def _write_executable(path: Path, content: str = _STUB_SCRIPT) -> None:
+    path.write_text(content)
     path.chmod(0o755)
 
 
@@ -82,7 +82,9 @@ class ExperimentKwargs(TypedDict, total=False):
     name: str
     params: dict[str, list[TOMLScalar]] | None
     executable: str
+    executable_content: str
     setup: bool
+    setup_content: str
     results: dict[str, str] | None
     environment_variables: dict[str, str] | None
     environment_files: dict[str, str] | None
@@ -94,7 +96,9 @@ def build_experiment(  # noqa: PLR0913
     name: str = "exp",
     params: dict[str, list[TOMLScalar]] | None = None,
     executable: str = "main.py",
+    executable_content: str = _STUB_SCRIPT,
     setup: bool = False,
+    setup_content: str = _STUB_SCRIPT,
     results: dict[str, str] | None = None,
     environment_variables: dict[str, str] | None = None,
     environment_files: dict[str, str] | None = None,
@@ -105,17 +109,21 @@ def build_experiment(  # noqa: PLR0913
     (``setup`` script, environment files) into ``directory`` and returns
     the parsed ``ExperimentDefinition`` alongside the directory itself.
 
+    ``executable_content`` / ``setup_content`` override the default no-op
+    stub when a test needs the script to do real work (e.g. exit non-zero
+    or print environment variables).
+
     Callable from anywhere; safe to use from inside ``@given`` tests where
     fixtures interact poorly with Hypothesis.
     """
     directory.mkdir(parents=True, exist_ok=True)
 
-    _write_executable(directory / executable)
+    _write_executable(directory / executable, content=executable_content)
 
     setup_name: str | None = None
     if setup:
         setup_name = "setup.py"
-        _write_executable(directory / setup_name)
+        _write_executable(directory / setup_name, content=setup_content)
 
     if environment_files:
         for env_file in environment_files:

@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
+from mprun.errors import NoRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -31,6 +32,27 @@ from mprun.models import (
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import RESULTS_ARCHIVE_NAME, Worker
 from tests.conftest import copy_experiment_to_test_environment
+
+
+def _idle_worker(home_dir: Path) -> Worker:
+    """Build a Worker with no assigned run."""
+    return Worker(
+        http_client=AsyncClient(),
+        meta_data=WorkerData.new(name="testworker"),
+        home_dir=home_dir,
+    )
+
+
+def _ready_worker(
+    home_dir: Path,
+    definition: ExperimentDefinition,
+    archive_path: Path,
+) -> Worker:
+    """Build a Worker pre-assigned to ``definition``'s first run with archive in place."""
+    worker = _idle_worker(home_dir)
+    worker.working = Experiment.new(definition=definition).runs[0]
+    worker.archive_path = archive_path
+    return worker
 
 
 @pytest.mark.asyncio
@@ -252,3 +274,94 @@ async def test_results_upload(
             submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED
             assert submitted_run.success_state == SuccessState.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_execute_run_fails_when_main_exits_nonzero(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """execute_run returns FAILED when the main executable exits with non-zero status."""
+    definition, directory = make_experiment(
+        executable_content="#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
+    )
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+
+    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
+
+    assert await worker.execute_run() == SuccessState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_execute_run_fails_when_setup_exits_nonzero(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """execute_run returns FAILED when the setup executable exits with non-zero status."""
+    definition, directory = make_experiment(
+        setup=True,
+        setup_content="#!/usr/bin/env python3\nimport sys; sys.exit(2)\n",
+    )
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+
+    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
+
+    assert await worker.execute_run() == SuccessState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_execute_run_passes_env_vars_to_subprocess(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """environment_variables from the definition are visible inside the run subprocess."""
+    definition, directory = make_experiment(
+        executable_content=(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "sys.stdout.write(os.environ.get('MPRUN_TEST', '<unset>'))\n"
+        ),
+        environment_variables={"MPRUN_TEST": "hello"},
+    )
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+
+    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
+
+    assert await worker.execute_run() == SuccessState.SUCCESS
+    assert (worker.execution_dir / "stdout").read_text() == "hello"
+
+
+@pytest.mark.asyncio
+async def test_worker_raises_no_run_error_when_idle(tmp_path: Path) -> None:
+    """Run-dependent methods raise NoRunError when no run is assigned."""
+    worker = _idle_worker(tmp_path / "worker")
+
+    with pytest.raises(NoRunError):
+        await worker.execute_run()
+    with pytest.raises(NoRunError):
+        await worker.prepare_run_environment()
+    with pytest.raises(NoRunError):
+        await worker.collect_results()
+    with pytest.raises(NoRunError):
+        await worker.upload_results()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_wipes_execution_dir(tmp_path: Path) -> None:
+    """Cleanup empties execution_dir but keeps the directory itself."""
+    worker = _idle_worker(tmp_path / "worker")
+    (worker.execution_dir / "junk.txt").write_text("data")
+    nested = worker.execution_dir / "nested"
+    nested.mkdir()
+    (nested / "more.txt").write_text("more")
+
+    await worker.cleanup()
+
+    assert worker.execution_dir.is_dir()
+    assert list(worker.execution_dir.iterdir()) == []
