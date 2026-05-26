@@ -5,6 +5,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import NamedTuple
 
+type TOMLScalar = (
+    str | int | float | bool
+)  # TOML-serialisable types for Experiment params
+
 
 class ActiveState(StrEnum):
     """Possible active states for both Experiments and Runs.

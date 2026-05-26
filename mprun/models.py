@@ -14,11 +14,7 @@ from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
 
 from mprun.errors import ArchiveValidationError, InvalidParametersError
-from mprun.types import ActiveState, RunId, SuccessState
-
-type TOMLScalar = (
-    str | int | float | bool
-)  # TOML-serialisable types for Experiment params
+from mprun.types import ActiveState, RunId, SuccessState, TOMLScalar
 
 EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
 EXPERIMENT_ARCHIVE_NAME = "experiment_archive.zip"
