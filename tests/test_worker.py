@@ -10,7 +10,6 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.models import (
-    RESULTS_ARCHIVE_NAME,
     ActiveState,
     Experiment,
     Run,
@@ -18,7 +17,7 @@ from mprun.models import (
     WorkerData,
 )
 from mprun.server import DATA_PATH_ENV, lifespan, server
-from mprun.worker import Worker
+from mprun.worker import RESULTS_ARCHIVE_NAME, Worker
 from tests.helpers.experiment_helper import (
     TEST_EXPERIMENT,
     copy_experiment_to_test_environment,

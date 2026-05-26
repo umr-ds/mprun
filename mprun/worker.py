@@ -23,7 +23,6 @@ from mprun import SERVER_ADDRESS_ENV
 from mprun.errors import NoRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
-    RESULTS_ARCHIVE_NAME,
     Run,
     WorkerData,
 )
@@ -33,6 +32,7 @@ logger = logging.getLogger(__name__)
 cli = Typer()
 WORKER_NAME_ENV = "MPRUN_WORKER_NAME"
 WORKER_HOME_DIR = "MPRUN_WORKER_DIRECTORY"
+RESULTS_ARCHIVE_NAME = "results.zip"
 SLEEP_TIME = 60
 
 

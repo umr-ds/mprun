@@ -22,7 +22,6 @@ type TOMLScalar = (
 
 EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
 EXPERIMENT_ARCHIVE_NAME = "experiment_archive.zip"
-RESULTS_ARCHIVE_NAME = "results.zip"
 
 
 def _expand_parameters(
