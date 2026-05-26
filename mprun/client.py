@@ -3,6 +3,7 @@
 """Module contains client application."""
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import AbstractContextManager
 from lzma import LZMAError
 from pathlib import Path
@@ -14,6 +15,7 @@ from rich.table import Table
 from typer import Argument, Exit, Option, Typer, echo
 
 from mprun.models import Experiment, ExperimentDefinition, ValidationMode
+from mprun.types import RunId
 
 console = Console()
 client = Typer()
@@ -224,6 +226,135 @@ def create_experiment(
         echo(resp.text)
     else:
         _print_experiment(experiment)
+
+
+def _download_run_results(
+    base_url: str | None, eid: int, index: int, output: Path
+) -> Path | None:
+    """Download results for one run. Returns saved path, or None if no results yet."""
+    with _client_factory(base_url) as http:
+        try:
+            resp = http.get(f"/runs/{eid}/{index}/results").raise_for_status()
+        except HTTPStatusError as err:
+            if err.response.status_code == codes.NOT_FOUND:
+                return None
+            raise
+
+    disposition = resp.headers.get("content-disposition", "")
+    filename = f"results_{eid}_{index}.zip"
+    for raw_part in disposition.split(";"):
+        stripped = raw_part.strip()
+        if stripped.startswith("filename="):
+            filename = stripped.removeprefix("filename=").strip('"')
+            break
+
+    dest = output / filename
+    dest.write_bytes(resp.content)
+    return dest
+
+
+@client.command("results", help="Download results archive for a specific run.")
+def get_run_results(
+    run_id: str = Argument(help="Run ID"),
+    output: Path | None = Option(
+        None,
+        "-o",
+        "--output",
+        help="Directory to save the results archive to. Defaults to current directory.",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+    ),
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+) -> None:
+    """Download results archive for a specific run."""
+    try:
+        rid = RunId.from_str(run_id)
+    except ValueError as err:
+        echo(f"Invalid run ID {run_id!r}: expected {{eid}}-{{index}}", err=True)
+        raise Exit(1) from err
+
+    try:
+        dest = _download_run_results(base_url, rid.eid, rid.index, output or Path())
+    except HTTPStatusError as err:
+        if err.response.status_code == codes.NOT_FOUND:
+            echo(f"No results for run {run_id!r}", err=True)
+        else:
+            echo(f"HTTP error {err.response.status_code}: {err}", err=True)
+        raise Exit(1) from err
+
+    if dest is None:
+        echo(f"No results for run {run_id!r}", err=True)
+        raise Exit(1)
+    echo(f"Saved to {dest}")
+
+
+@client.command("get-results", help="Download results for all runs in an experiment.")
+def get_experiment_results(
+    eid: int = Argument(help="Experiment ID"),
+    output: Path | None = Option(
+        None,
+        "-o",
+        "--output",
+        help="Directory to save results to. Defaults to current directory.",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+    ),
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+) -> None:
+    """Download results for all runs in an experiment in parallel."""
+    try:
+        with _client_factory(base_url) as http:
+            resp = http.get(f"/experiments/{eid}").raise_for_status()
+    except HTTPStatusError as err:
+        if err.response.status_code == codes.NOT_FOUND:
+            echo(f"No experiment with ID {eid}", err=True)
+        else:
+            echo(f"HTTP error {err.response.status_code}: {err}", err=True)
+        raise Exit(1) from err
+
+    try:
+        experiment = Experiment.model_validate(resp.json())
+    except ValidationError as err:
+        echo(f"Error validating response: {err}", err=True)
+        raise Exit(1) from err
+
+    out_dir = output or Path()
+    saved: list[Path] = []
+    skipped: list[int] = []
+    failed = False
+
+    with ThreadPoolExecutor() as pool:
+        futures = {
+            pool.submit(
+                _download_run_results, base_url, run.eid, run.index, out_dir
+            ): run.index
+            for run in experiment.runs
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                result = future.result()
+            except HTTPStatusError as err:
+                echo(f"HTTP error downloading run {index}: {err}", err=True)
+                failed = True
+                continue
+            if result is None:
+                skipped.append(index)
+            else:
+                saved.append(result)
+
+    for path in sorted(saved):
+        echo(f"Saved: {path}")
+    if skipped:
+        echo(f"No results yet for run indices: {sorted(skipped)}")
+    if failed:
+        raise Exit(1)
 
 
 if __name__ == "__main__":

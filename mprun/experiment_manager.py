@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import os
 from asyncio import Lock, to_thread
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,8 +102,11 @@ class ExperimentManager:
         """Gets path to Experiment's archive."""
         return self._data_path / str(experiment.eid) / EXPERIMENT_ARCHIVE_NAME
 
-    def _experiment_path(self, experiment: Experiment) -> Path:
-        return self._data_path / str(experiment.eid)
+    def _experiment_path(self, eid: int) -> Path:
+        return self._data_path / str(eid)
+
+    def _run_results_path(self, rid: RunId) -> Path:
+        return self._experiment_path(eid=rid.eid) / f"results_{rid.index}.zip"
 
     async def create_experiment(
         self, definition: ExperimentDefinition, archive: BinaryIO
@@ -131,7 +136,7 @@ class ExperimentManager:
                 definition.validate_archive(archive_path=tmp_archive)
 
                 # if validation successful, store archive permanently
-                experiment_path = self._experiment_path(experiment=experiment)
+                experiment_path = self._experiment_path(eid=experiment.eid)
                 await to_thread(experiment_path.mkdir, parents=False, exist_ok=False)
                 experiment_archive = experiment_path / EXPERIMENT_ARCHIVE_NAME
 
@@ -239,10 +244,7 @@ class ExperimentManager:
 
             experiment = self._experiments[run.eid]
 
-            result_archive_path = (
-                self._experiment_path(experiment=experiment)
-                / f"results_{run.eid}_{run.index}.zip"
-            )
+            result_archive_path = self._run_results_path(rid=run.run_id)
             await to_thread(_copy_to_file, results_archive, result_archive_path)
 
             experiment.runs[run.index] = run
@@ -256,6 +258,43 @@ class ExperimentManager:
                 del self._experiments[experiment.eid]
                 for finished_run in experiment.runs:
                     self._runs.pop(finished_run.run_id, None)
+
+    async def get_run_results(self, rid: RunId) -> Path:
+        """Gets the path of the Run's results archive.
+
+        Args:
+            rid (RunId): Run's ID.
+
+        Returns:
+            Path: Path to the Run's results archive - if it exists.
+
+        Raises:
+            FileNotFoundError: If there is no results archive - either because the Run does not exist, or it hasn't finished yet.
+        """
+        async with self._state_mutex:
+            path = self._run_results_path(rid=rid)
+            if await to_thread(path.is_file):
+                return path
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
+
+    async def get_experiment_results(self, eid: int) -> list[Path]:
+        """Gets the paths of all the Experiment's Run's results archives.
+
+        Args:
+            eid (int): Experiment's ID.
+
+        Returns:
+            list[Path]: Paths to results archives (only includes Runs which have actually finished).
+
+        Raises:
+            NoSuchExperimentError: If there is no experiment with that ID.
+        """
+        async with self._state_mutex:
+            experiment_directory = self._experiment_path(eid=eid)
+            if not await to_thread(experiment_directory.is_dir):
+                raise NoSuchExperimentError(eid=eid)
+            archives = await to_thread(experiment_directory.glob, "results_*.zip")
+            return sorted(archives)
 
     async def commit(self, operation: PendingDispatch) -> None:
         """Commit a pending operation and modify local state accordingly."""

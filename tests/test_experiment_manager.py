@@ -128,11 +128,7 @@ async def test_results_submit() -> None:
 
         await manager.submit_run_results(run=run, results_archive=buf)
 
-        result_path = (
-            manager._data_path
-            / str(experiment.eid)
-            / f"results_{run.eid}_{run.index}.zip"
-        )
+        result_path = manager._run_results_path(rid=run.run_id)
         assert result_path.is_file()
 
         retrieved = await manager.get_experiment(eid=experiment.eid)

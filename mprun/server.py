@@ -197,6 +197,21 @@ async def get_run(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
+@server.get("/runs/{eid}/{index}/results")
+async def get_run_results(
+    eid: int,
+    index: int,
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> FileResponse:
+    """Download the results archive for a finished Run."""
+    rid = RunId(eid=eid, index=index)
+    try:
+        path = await em.get_run_results(rid=rid)
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    return FileResponse(path=path, media_type="application/zip", filename=path.name)
+
+
 @server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
 async def register_worker(
     name: str,
