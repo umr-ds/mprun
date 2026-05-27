@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-"""Module contains client application."""
+"""CLI client for interacting with the server."""
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,6 +25,7 @@ DEFAULT_URL = "http://localhost:8000"
 
 
 def _default_client_factory(base_url: str | None) -> AbstractContextManager[Client]:
+    """Return an instance of httpx.Client configured with ``base_url``, falling back to ``DEFAULT_URL``."""
     return Client(base_url=base_url or DEFAULT_URL)
 
 
@@ -35,6 +36,7 @@ _client_factory: Callable[[str | None], AbstractContextManager[Client]] = (
 
 
 def _print_experiments(experiments: list[Experiment]) -> None:
+    """Print a summary table of multiple experiments to the console."""
     table = Table("Name", "ID", "Active", "Success")
     for experiment in experiments:
         table.add_row(
@@ -47,6 +49,7 @@ def _print_experiments(experiments: list[Experiment]) -> None:
 
 
 def _print_experiment(experiment: Experiment) -> None:
+    """Print a detailed view of a single experiment and its runs to the console."""
     table = Table("Name", "ID", "Active", "Success", title="Experiment")
     table.add_row(
         experiment.name,
@@ -131,9 +134,16 @@ def get_experiment(
 def _load_experiment_archive(
     experiment_path: Path,
 ) -> tuple[ExperimentDefinition, Path]:
-    """Attempt to load the experiment definition & create the experiment archive.
+    """Load an experiment definition from a TOML file and create its ZIP archive.
 
-    On error, produce an appropriate error message and quit.
+    On any error, prints a message to stderr and raises ``Exit(1)``.
+
+    Args:
+        experiment_path (Path): Path to the experiment's TOML definition file.
+
+    Returns:
+        tuple[ExperimentDefinition, Path]: The parsed definition and the path to the
+            created archive.
     """
     try:
         definition = ExperimentDefinition.load_toml(
@@ -159,7 +169,14 @@ def _load_experiment_archive(
 
 
 def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:
-    """Attempt to extract details from HTTP error and produce an appropriate error message."""
+    """Print a human-readable error message to stderr for an HTTP error from the create endpoint.
+
+    Extracts the ``detail`` field from the JSON response body when available, and maps
+    known HTTP status codes to specific messages.
+
+    Args:
+        err (HTTPStatusError): The HTTP error raised by the create experiment request.
+    """
     try:
         detail = err.response.json().get("detail", str(err))
     except Exception:  # noqa: BLE001
@@ -231,7 +248,21 @@ def create_experiment(
 def _download_run_results(
     base_url: str | None, eid: int, index: int, output: Path
 ) -> Path | None:
-    """Download results for one run. Returns saved path, or None if no results yet."""
+    """Download the results archive for a single run and write it to disk.
+
+    Args:
+        base_url (str | None): Server base URL, or ``None`` to use ``DEFAULT_URL``.
+        eid (int): Experiment ID.
+        index (int): Run index within the experiment.
+        output (Path): Directory to write the results archive into.
+
+    Returns:
+        Path | None: Path to the saved archive, or ``None`` if no results are available yet
+            (server returned 404).
+
+    Raises:
+        HTTPStatusError: If the server returns any non-2xx response other than 404.
+    """
     with _client_factory(base_url) as http:
         try:
             resp = http.get(f"/runs/{eid}/{index}/results").raise_for_status()

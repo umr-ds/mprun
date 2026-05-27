@@ -1,4 +1,4 @@
-"""Module contains custom types shared across the package."""
+"""Shared types used across the package."""
 
 from __future__ import annotations
 
@@ -11,17 +11,18 @@ type TOMLScalar = (
 
 
 class ActiveState(StrEnum):
-    """Possible active states for both Experiments and Runs.
+    """Active states shared by both Experiments and Runs.
 
-    Meaning for Run:
-        WAITING: Run has not been dispatched.
-        RUNNING: Run has been dispatched, has not finished.
-        FINISHED: Run has finished.
+    Meaning for a Run:
+        WAITING: Run has not yet been dispatched to a worker.
+        RUNNING: Run has been dispatched but has not finished.
+        FINISHED: Run has finished (regardless of success or failure).
 
-    Meaning for Experiment:
-        WAITING: All runs are waiting.
-        RUNNING: At least one run is running.
-        FINISHED: All runs have finished.
+    Meaning for an Experiment:
+        WAITING: All runs are WAITING.
+        RUNNING: At least one run is not WAITING, and at least one is not FINISHED
+            (i.e. the experiment is in progress).
+        FINISHED: All runs are FINISHED.
     """
 
     WAITING = "WAITING"
@@ -30,17 +31,17 @@ class ActiveState(StrEnum):
 
 
 class SuccessState(StrEnum):
-    """Possible success states for Experiments and Runs.
+    """Success states shared by both Experiments and Runs.
 
-    Meaning for Runs:
-        PENDING: This Run has not finished
-        SUCCESS: This Run has finished without error.
-        FAILED: This Run has finished with an error.
+    Meaning for a Run:
+        PENDING: Run has not yet finished.
+        SUCCESS: Run finished with exit code 0.
+        FAILED: Run finished with a non-zero exit code or timed out.
 
-    Meaning for Experiments:
-        PENDING: There are still Runs with state PENDING, no Runs with state FAILED
-        SUCCESS: All Runs have state SUCCESS
-        FAILED: At least one Run has state FAILED
+    Meaning for an Experiment:
+        PENDING: No runs have failed yet, and at least one has not finished.
+        SUCCESS: All runs finished successfully.
+        FAILED: At least one run failed.
     """
 
     PENDING = "PENDING"
@@ -55,7 +56,7 @@ class RunId(NamedTuple):
     index: int
 
     def __str__(self) -> str:
-        """Return string representation of RunId."""
+        """Return the RunId as ``{eid}-{index}``."""
         return f"{self.eid}-{self.index}"
 
     @classmethod

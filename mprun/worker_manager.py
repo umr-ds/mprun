@@ -1,4 +1,4 @@
-"""Module contains tool to manage Workers."""
+"""Worker registration and state tracking."""
 
 from asyncio import Lock
 from time import time
@@ -10,10 +10,11 @@ from mprun.types import RunId
 
 
 class WorkerManager:
-    """Manages Workers.
+    """Tracks registered workers and their run assignments. In-memory only; not persisted.
 
     Attributes:
-        workers (dict[worker]): Dictionary of registered workers.
+        workers (dict[int, WorkerData]): Registered workers keyed by worker ID.
+        _state_mutex (Lock): Guards ``workers`` against concurrent modification.
     """
 
     workers: dict[int, WorkerData]
@@ -25,18 +26,24 @@ class WorkerManager:
         self._state_mutex = Lock()
 
     async def get_all(self) -> list[WorkerData]:
-        """Get list of all registered workers."""
+        """Return all registered workers.
+
+        Returns:
+            list[WorkerData]: Snapshot of all currently registered workers.
+        """
         async with self._state_mutex:
             return list(self.workers.values())
 
     async def register(self, name: str) -> WorkerData:
-        """Registers a new worker with the manager.
+        """Register a new worker and return its metadata.
+
+        Assigns a unique UUID-derived ID, retrying on the rare chance of a collision.
 
         Args:
-            name (str): New worker's name.
+            name (str): Human-readable name for the new worker.
 
         Returns:
-            WorkerData: Newly created worker model.
+            WorkerData: Metadata for the newly registered worker.
         """
         async with self._state_mutex:
             worker = WorkerData.new(name=name)
@@ -49,16 +56,16 @@ class WorkerManager:
             return worker
 
     async def get(self, wid: int) -> WorkerData:
-        """Get worker with given ID.
+        """Return a single worker by ID.
 
         Args:
-            wid (int): Worker's unique ID.
+            wid (int): Worker ID to look up.
 
         Returns:
-            WorkerData: Worker model, if it exists.
+            WorkerData: Metadata for the matching worker.
 
         Raises:
-            NoSuchWorkerError: If no worker with the given id exists.
+            NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
             if wid not in self.workers:
@@ -67,15 +74,13 @@ class WorkerManager:
             return self.workers[wid]
 
     async def check_in(self, wid: int) -> None:
-        """Perform worker check in.
-
-        Sets workers 'last_checkin' to current time.
+        """Record a worker heartbeat by updating its ``last_check_in`` timestamp.
 
         Args:
-            wid (int): Worker's ID.
+            wid (int): ID of the worker checking in.
 
         Raises:
-            NoSuchWorkerError: If no worker with the given id exists.
+            NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
             if wid not in self.workers:
@@ -84,16 +89,14 @@ class WorkerManager:
             self.workers[wid].last_check_in = time()
 
     async def assign_run(self, wid: int, run_id: RunId) -> None:
-        """Assign Run to worker.
-
-        Stores that woker is currently executing given Run and sets Worker's state to "WORKING".
+        """Assign a run to a worker and set its state to WORKING.
 
         Args:
-            wid (int): Worker's ID.
-            run_id (RunId): Run's composite identity.
+            wid (int): ID of the worker to assign the run to.
+            run_id (RunId): Composite identity of the run being assigned.
 
         Raises:
-            NoSuchWorkerError: If no worker with the given id exists.
+            NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
             if wid not in self.workers:
@@ -104,17 +107,19 @@ class WorkerManager:
             worker.run = run_id
 
     async def unassign_run(self, wid: int, run_id: RunId, state: WorkerState) -> None:
-        """Unassign Run from worker.
+        """Clear a worker's run assignment and transition it to a new state.
 
-        Either because the worker finished executing the run, or because it has died.
+        Used when a run completes normally or when the worker is marked as dead.
 
         Args:
-            wid (int): Worker's ID.
-            run_id (RunId): Run's composite identity.
-            state (WorkerState): Worker's new state after unassignment
+            wid (int): ID of the worker to update.
+            run_id (RunId): Expected composite identity of the run currently assigned to the
+                worker. Must match the worker's current ``run`` field.
+            state (WorkerState): State to transition the worker to after unassignment.
 
         Raises:
-            NoSuchWorkerError: If no worker with the given id exists.
+            NoSuchWorkerError: If no worker with that ID is registered.
+            NoSuchRunError: If the worker's current run does not match ``run_id``.
         """
         async with self._state_mutex:
             if wid not in self.workers:

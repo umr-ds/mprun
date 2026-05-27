@@ -1,4 +1,4 @@
-"""Module contains errors."""
+"""Custom exception types."""
 
 from dataclasses import dataclass
 
@@ -7,7 +7,11 @@ from mprun.types import RunId
 
 @dataclass(frozen=True)
 class ArchiveValidationError(ValueError):
-    """Raised when an Experiment archive fails validation."""
+    """Raised when an experiment archive fails validation.
+
+    Attributes:
+        reason (str): Human-readable explanation of why validation failed.
+    """
 
     reason: str
 
@@ -18,10 +22,10 @@ class ArchiveValidationError(ValueError):
 
 @dataclass(frozen=True)
 class InvalidParametersError(ValueError):
-    """Raised when the user submits an invalid parameter set.
+    """Raised when an invalid parameter set is submitted for an experiment.
 
     Attributes:
-        reason (str): The exact reason why the parameters were invalid.
+        reason (str): Human-readable explanation of why the parameters are invalid.
     """
 
     reason: str
@@ -31,13 +35,11 @@ class InvalidParametersError(ValueError):
         return f"Experiment parameters invalid! Reason: {self.reason}"
 
 
-dataclass(frozen=True)
-
-
 class NoRunError(AttributeError):
-    """Raised when Worker tries to execute a Run, but has no run assigned.
+    """Raised when a worker method requires an active run but none is assigned.
 
-    This should never happen!
+    Indicates a programming error — callers must check ``working`` before invoking
+    methods that require an active run.
     """
 
     def __str__(self) -> str:
@@ -47,10 +49,10 @@ class NoRunError(AttributeError):
 
 @dataclass(frozen=True)
 class NoSuchExperimentError(LookupError):
-    """Raised when trying to retrieve an Experiment that does not exist.
+    """Raised when an experiment with the requested ID does not exist.
 
     Attributes:
-        eid (int): Non-existent Experiment's ID.
+        eid (int): The ID that was looked up.
     """
 
     eid: int
@@ -62,10 +64,10 @@ class NoSuchExperimentError(LookupError):
 
 @dataclass(frozen=True)
 class NoSuchRunError(LookupError):
-    """Raised when trying to retrieve a Run that does not exist.
+    """Raised when a run with the requested identity does not exist.
 
     Attributes:
-        run_id (RunId): Non-existent Run's composite identity.
+        run_id (RunId): The identity that was looked up.
     """
 
     run_id: RunId
@@ -77,10 +79,10 @@ class NoSuchRunError(LookupError):
 
 @dataclass(frozen=True)
 class NoSuchWorkerError(LookupError):
-    """Raised when trying to retrieve a Worker that does not exist.
+    """Raised when a worker with the requested ID does not exist.
 
     Attributes:
-        wid(int): Non-existent Worker's ID.
+        wid (int): The ID that was looked up.
     """
 
     wid: int

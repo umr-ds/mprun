@@ -1,4 +1,4 @@
-"""Module contains tool to manage Experiments."""
+"""Experiment lifecycle management."""
 
 from __future__ import annotations
 
@@ -31,14 +31,18 @@ def _copy_to_file(src: BinaryIO, dst: Path) -> None:
 
 
 class ExperimentManager:
-    """Manages (creates, deletes, dispatches, etc) Experiments.
+    """Creates, dispatches, and tracks Experiments and their Runs.
 
     Attributes:
-        _data_path (Path): Base-path for the data directory. Will be used to store database & experiment data.
-        _db (TinyDB): Database for Experiment metadata.
-        _state_mutex (Lock): Mutex to prevent concurrent state modification.
-
-        _experiments (dict[Experiment]): All active experiments.
+        _data_path (Path): Root directory for all persisted data (database and experiment archives).
+        _db (TinyDB): TinyDB database storing experiment metadata.
+        _state_mutex (Lock): Async lock guarding all mutable state. Every method that reads or
+            writes ``_experiments``, ``_runs``, or ``_pending_dispatches`` must hold this lock.
+        _experiments (dict[int, Experiment]): In-memory cache of active experiments, keyed by
+            experiment ID. Finished experiments are evicted on completion.
+        _runs (dict[RunId, Run]): In-memory cache of runs belonging to active experiments.
+        _pending_dispatches (set[RunId]): Run IDs currently being dispatched but not yet
+            committed to a worker. Prevents the same run from being handed out twice.
     """
 
     _data_path: Path
@@ -50,10 +54,13 @@ class ExperimentManager:
     _pending_dispatches: set[RunId]
 
     def __init__(self, data_path: Path) -> None:
-        """Initialise ExperimentManager.
+        """Initialise the ExperimentManager.
+
+        Loads all active experiments from the database into memory. Finished experiments are
+        not cached but remain queryable via the database.
 
         Args:
-            data_path (Path): Base-path for the data directory. Will be used to store database & experiment data.
+            data_path (Path): Root directory for all persisted data. Created if it does not exist.
         """
         data_path.mkdir(parents=True, exist_ok=True)
         self._data_path = data_path
@@ -77,9 +84,9 @@ class ExperimentManager:
         return self._db.table("experiments")
 
     async def _update(self, experiment: Experiment) -> None:
-        """Update Experiment's data in database.
+        """Persist the current state of an experiment to the database.
 
-        *IMPORTANT*: This method is *NOT* thread safe. The caller MUST have locked the manager's state_mutex before calling.
+        **Not thread-safe.** Caller must hold ``_state_mutex`` before calling.
         """
         update = Query()
         await to_thread(
@@ -89,18 +96,29 @@ class ExperimentManager:
         )
 
     def close(self) -> None:
-        """Close database & shut down."""
+        """Close the database connection."""
         self._db.close()
 
     async def get_all(self) -> list[Experiment]:
-        """Get list of all existing Experiments."""
+        """Return all experiments, including finished ones.
+
+        Returns:
+            list[Experiment]: All experiments stored in the database.
+        """
         async with self._state_mutex:
             docs = await to_thread(self._experiments_table.all)
             return [Experiment.model_validate(doc) for doc in docs]
 
     def get_experiment_archive(self, experiment: Experiment) -> Path:
-        """Gets path to Experiment's archive."""
-        return self._data_path / str(experiment.eid) / EXPERIMENT_ARCHIVE_NAME
+        """Return the filesystem path to an experiment's archive.
+
+        Args:
+            experiment (Experiment): The experiment whose archive path to return.
+
+        Returns:
+            Path: Path to the experiment's ZIP archive.
+        """
+        return self._experiment_path(eid=experiment.eid) / EXPERIMENT_ARCHIVE_NAME
 
     def _experiment_path(self, eid: int) -> Path:
         return self._data_path / str(eid)
@@ -152,9 +170,15 @@ class ExperimentManager:
             return experiment
 
     async def _get_experiment_from_db(self, eid: int) -> Experiment | None:
-        """Fetch a single experiment from TinyDB by eid.
+        """Fetch a single experiment from the database by ID.
 
-        *IMPORTANT*: This method is *NOT* thread safe. The caller MUST have locked the manager's state_mutex before calling.
+        **Not thread-safe.** Caller must hold ``_state_mutex`` before calling.
+
+        Args:
+            eid (int): Experiment ID to look up.
+
+        Returns:
+            Experiment | None: The matching experiment, or ``None`` if not found.
         """
         q = Query()
         docs = await to_thread(self._experiments_table.search, q.eid == eid)
@@ -205,13 +229,16 @@ class ExperimentManager:
             return experiment.runs[rid.index]
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
-        """Get a waiting Run.
+        """Claim a waiting run for dispatch.
 
-        Manager will check if there are any runs with the 'WAITING' state and return one, if available.
-        If dispatchable Run is found, set its state to "RUNNING" and its wid to the provided one.
+        Finds the first run with ``WAITING`` state that is not already being dispatched, marks
+        it as pending, and returns a ``PendingDispatch`` context manager. The caller must
+        call ``finalise`` on it and let the context manager exit to commit the
+        dispatch; any exception (or not calling ``finalise``) causes an automatic cancel.
 
         Returns:
-            Run | None: Run-object if a waiting Run is available, None if none available.
+            PendingDispatch | None: A pending dispatch for the claimed run, or ``None`` if no
+                waiting runs are available.
         """
         async with self._state_mutex:
             experiments = [
@@ -235,7 +262,20 @@ class ExperimentManager:
             return None
 
     async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
-        """Submit results from a run."""
+        """Persist the results of a completed run and update experiment state.
+
+        Stores the results archive to disk, updates the run and experiment states, and evicts the
+        experiment from memory if all its runs have finished.
+
+        Args:
+            run (Run): The completed run, with its final state already set.
+            results_archive (BinaryIO): Binary stream of the results ZIP archive.
+
+        Raises:
+            NoSuchRunError: If the run is not tracked by this manager.
+            NoSuchExperimentError: If the parent experiment is not tracked by this manager.
+            OSError: If writing the results archive to disk fails.
+        """
         async with self._state_mutex:
             if run.run_id not in self._runs:
                 raise NoSuchRunError(run_id=run.run_id)
@@ -260,16 +300,17 @@ class ExperimentManager:
                     self._runs.pop(finished_run.run_id, None)
 
     async def get_run_results(self, rid: RunId) -> Path:
-        """Gets the path of the Run's results archive.
+        """Return the path to a run's results archive.
 
         Args:
-            rid (RunId): Run's ID.
+            rid (RunId): Composite run identity (eid + index).
 
         Returns:
-            Path: Path to the Run's results archive - if it exists.
+            Path: Path to the run's results ZIP archive.
 
         Raises:
-            FileNotFoundError: If there is no results archive - either because the Run does not exist, or it hasn't finished yet.
+            FileNotFoundError: If no results archive exists — either the run does not exist or
+                has not finished yet.
         """
         async with self._state_mutex:
             path = self._run_results_path(rid=rid)
@@ -278,16 +319,18 @@ class ExperimentManager:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
 
     async def get_experiment_results(self, eid: int) -> list[Path]:
-        """Gets the paths of all the Experiment's Run's results archives.
+        """Return paths to all available results archives for an experiment.
+
+        Only includes runs that have actually finished (i.e. produced a results archive).
 
         Args:
-            eid (int): Experiment's ID.
+            eid (int): Experiment ID.
 
         Returns:
-            list[Path]: Paths to results archives (only includes Runs which have actually finished).
+            list[Path]: Sorted paths to per-run results archives.
 
         Raises:
-            NoSuchExperimentError: If there is no experiment with that ID.
+            NoSuchExperimentError: If no experiment with that ID exists.
         """
         async with self._state_mutex:
             experiment_directory = self._experiment_path(eid=eid)
@@ -297,7 +340,14 @@ class ExperimentManager:
             return sorted(archives)
 
     async def commit(self, operation: PendingDispatch) -> None:
-        """Commit a pending operation and modify local state accordingly."""
+        """Commit a pending dispatch: mark the run as RUNNING, assign the worker, and persist.
+
+        Rolls back the state change if the database write fails.
+
+        Args:
+            operation (PendingDispatch): The dispatch to commit. Must have ``wid`` set via
+                ``finalise`` before calling.
+        """
         async with self._state_mutex:
             prev_active = operation.run.active_state
             prev_wid = operation.run.wid
@@ -315,21 +365,27 @@ class ExperimentManager:
                 self._pending_dispatches.discard(operation.run.run_id)
 
     async def cancel(self, operation: PendingDispatch) -> None:
-        """Cancel a pending operation."""
+        """Cancel a pending dispatch, releasing the run back to the waiting pool.
+
+        Args:
+            operation (PendingDispatch): The dispatch to cancel.
+        """
         async with self._state_mutex:
             self._pending_dispatches.discard(operation.run.run_id)
 
 
 @dataclass
 class PendingDispatch:
-    """Represents a Run that has been marked for dispatching, but not assigned to a worker.
+    """A run claimed for dispatch but not yet committed to a worker.
+
+    Use as an async context manager. Call ``finalise`` with the target worker ID before the
+    context exits to commit the dispatch; any unhandled exception causes an automatic cancel.
 
     Attributes:
-        manager (ExperimentManager): Responsible Experiment Manager.
-        experiment (Experiment): The Run's parent Experiment.
-        run (Run): The actual Run.
-        wid (int | None): None if no worker has been assigned. Once assigned, the Worker's ID.
-        _finalised (bool): Whether the dispatch has been finalised.
+        manager (ExperimentManager): Manager that owns this dispatch.
+        experiment (Experiment): Parent experiment of the run being dispatched.
+        run (Run): The run being dispatched.
+        wid (int | None): Worker ID assigned via ``finalise``, or ``None`` if not yet assigned.
     """
 
     manager: ExperimentManager
@@ -339,7 +395,7 @@ class PendingDispatch:
     _finalised: bool = False
 
     async def __aenter__(self) -> PendingDispatch:
-        """Enter context manager."""
+        """Enter the dispatch context."""
         return self
 
     async def __aexit__(
@@ -348,10 +404,7 @@ class PendingDispatch:
         value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
-        """Exit context manager.
-
-        If the dispatch was finalised, we commit it, otherwise we cancel it.
-        """
+        """Commit if finalised and no exception occurred; cancel otherwise."""
         if type_ is None and self._finalised:
             await self.manager.commit(self)
         else:
@@ -359,13 +412,13 @@ class PendingDispatch:
         return None
 
     def finalise(self, wid: int) -> Path:
-        """Finalise pending dispatch and return path to parent Experiment's archive.
+        """Assign a worker to this dispatch and mark it ready to commit.
 
         Args:
-            wid (int): ID of the worker that the Run is dispatched to.
+            wid (int): ID of the worker the run is being dispatched to.
 
         Returns:
-            Path: Filesystem path to the Experiment's archive.
+            Path: Filesystem path to the parent experiment's archive.
         """
         self.wid = wid
         self._finalised = True

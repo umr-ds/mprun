@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-"""Module contains server application."""
+"""FastAPI server application."""
 
 import logging
 import os
@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from typer import Option, Typer
 
+from mprun import PACKAGE_NAME, __version__
 from mprun.errors import (
     ArchiveValidationError,
     InvalidParametersError,
@@ -57,8 +58,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 server = FastAPI(
-    title="mprun",
-    version="0.0.1",
+    title=PACKAGE_NAME,
+    version=__version__,
     lifespan=lifespan,
 )
 cli = Typer()
@@ -80,7 +81,12 @@ async def create_experiment(
     archive: UploadFile = File(...),
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> Experiment:
-    """Create a new experiment from multipart form (ExperimentDefinition JSON + archive) and return it."""
+    """Create a new experiment from a multipart form and return it.
+
+    Accepts the experiment definition as a JSON-encoded form field and the experiment files
+    as a ZIP archive. Returns ``201 Created`` on success. Returns ``400`` for invalid
+    parameters, ``422`` for a malformed definition or archive, and ``500`` for I/O failures.
+    """
     logger.debug("Received experiment create request")
     try:
         definition = ExperimentDefinition.model_validate_json(experiment_definition)
@@ -137,10 +143,11 @@ async def dispatch_run(
     em: ExperimentManager = Depends(get_experiment_manager),
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Response:
-    """Workers query this endpoint to get a run to execute.
+    """Claim and return the next waiting run for a worker to execute.
 
-    Returns the Experiment archive as the response body (application/zip) with the
-    Run object serialised as JSON in the `X-Run` header.
+    Returns ``204 No Content`` if no runs are currently waiting. On success, returns the
+    experiment archive as ``application/zip`` with the serialised ``Run`` object in the
+    ``X-Run`` response header. Returns ``404`` if the worker ID is not registered.
     """
     try:
         pending = await em.dispatch_waiting_run()
@@ -168,7 +175,12 @@ async def run_results(
     em: ExperimentManager = Depends(get_experiment_manager),
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Response:
-    """Endpoint for workers to submit run results."""
+    """Accept a completed run's results from a worker.
+
+    Expects the finished ``Run`` object as a JSON-encoded form field and the results as a
+    ZIP archive. Marks the worker as idle and persists the results. Returns ``404`` if the
+    worker, experiment, or run is not found, and ``422`` if the run JSON is malformed.
+    """
     try:
         run_data = Run.model_validate_json(run)
 
@@ -190,7 +202,7 @@ async def get_run(
     index: int,
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> Run:
-    """Get a single Run by its composite identity (experiment ID + index)."""
+    """Return a single run by its composite identity (experiment ID + index)."""
     try:
         return await em.get_run(rid=RunId(eid=eid, index=index))
     except NoSuchRunError as err:
@@ -249,7 +261,7 @@ async def get_worker(
 async def check_in_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:
-    """Endpoint to perform worker checkin."""
+    """Record a worker heartbeat to confirm it is still alive."""
     logger.debug(f"Received worker checkin for id {wid}")
     try:
         await wm.check_in(wid=wid)
@@ -264,7 +276,7 @@ def main(
     port: int = Option(8000, help="Bind port"),
     verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
 ) -> None:
-    """Start the mprun server."""
+    """Start the server."""
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=log_level)
     uvicorn.run(
