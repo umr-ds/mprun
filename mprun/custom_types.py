@@ -54,10 +54,11 @@ class RunId(NamedTuple):
 
     eid: int
     index: int
+    iteration: int
 
     def __str__(self) -> str:
         """Return the RunId as ``{eid}-{index}``."""
-        return f"{self.eid}-{self.index}"
+        return f"{self.eid}-{self.index}-{self.iteration}"
 
     @classmethod
     def from_str(cls, value: str) -> RunId:
@@ -72,5 +73,5 @@ class RunId(NamedTuple):
         Raises:
             ValueError: If ``value`` is not in the expected format.
         """
-        eid_str, index_str = value.split("-", maxsplit=1)
-        return cls(eid=int(eid_str), index=int(index_str))
+        eid_str, index_str, iteration_str = value.split("-", maxsplit=2)
+        return cls(eid=int(eid_str), index=int(index_str), iteration=int(iteration_str))

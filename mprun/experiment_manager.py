@@ -75,7 +75,7 @@ class ExperimentManager:
         for experiment in experiments:
             if experiment.active:
                 self._experiments[experiment.eid] = experiment
-                runs = {run.run_id: run for run in experiment.runs}
+                runs = {run.run_id: run for runs in experiment.runs for run in runs}
                 self._runs.update(runs)
         self._pending_dispatches = set()
 
@@ -124,7 +124,10 @@ class ExperimentManager:
         return self._data_path / str(eid)
 
     def _run_results_path(self, rid: RunId) -> Path:
-        return self._experiment_path(eid=rid.eid) / f"results_{rid.index}.zip"
+        return (
+            self._experiment_path(eid=rid.eid)
+            / f"results_{rid.eid}_{rid.index}_{rid.iteration}.zip"
+        )
 
     async def create_experiment(
         self, definition: ExperimentDefinition, archive: BinaryIO
@@ -164,7 +167,7 @@ class ExperimentManager:
 
             await to_thread(self._experiments_table.insert, experiment.model_dump())
             self._experiments[experiment.eid] = experiment
-            runs = {run.run_id: run for run in experiment.runs}
+            runs = {run.run_id: run for runs in experiment.runs for run in runs}
             self._runs.update(runs)
 
             return experiment
@@ -224,9 +227,15 @@ class ExperimentManager:
             if run is not None:
                 return run
             experiment = await self._get_experiment_from_db(rid.eid)
-            if experiment is None or rid.index < 0 or rid.index >= len(experiment.runs):
+            if (
+                experiment is None
+                or rid.index < 0
+                or rid.index >= len(experiment.runs)
+                or rid.iteration < 1
+                or rid.iteration >= experiment.definition.iterations
+            ):
                 raise NoSuchRunError(run_id=rid)
-            return experiment.runs[rid.index]
+            return experiment.runs[rid.index][rid.iteration]
 
     async def dispatch_waiting_run(self) -> PendingDispatch | None:
         """Claim a waiting run for dispatch.
@@ -287,7 +296,7 @@ class ExperimentManager:
             result_archive_path = self._run_results_path(rid=run.run_id)
             await to_thread(_copy_to_file, results_archive, result_archive_path)
 
-            experiment.runs[run.index] = run
+            experiment.runs[run.index][run.iteration] = run
             self._runs[run.run_id] = run
 
             experiment.recalculate_state()
@@ -296,8 +305,9 @@ class ExperimentManager:
             # if the experiment is finished now, we can evict it from memory
             if not experiment.active:
                 del self._experiments[experiment.eid]
-                for finished_run in experiment.runs:
-                    self._runs.pop(finished_run.run_id, None)
+                for runs in experiment.runs:
+                    for finished_run in runs:
+                        self._runs.pop(finished_run.run_id, None)
 
     async def get_run_results(self, rid: RunId) -> Path:
         """Return the path to a run's results archive.

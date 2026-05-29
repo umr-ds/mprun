@@ -51,9 +51,11 @@ def test_experiment_new_run_count(params: dict[str, list[TOMLScalar]]) -> None:
     experiment = Experiment.new(definition)
 
     assert len(experiment.runs) == prod(len(values) for values in params.values())
-    for index, run in enumerate(experiment.runs):
-        assert run.index == index
-        assert run.eid == experiment.eid
+    for index, runs in enumerate(experiment.runs):
+        for iteration, run in enumerate(runs):
+            assert run.index == index
+            assert run.iteration == iteration
+            assert run.eid == experiment.eid
 
 
 def _expected_active(
@@ -89,16 +91,18 @@ def test_recalculate_state(states: list[tuple[ActiveState, SuccessState]]) -> No
     )
     experiment = Experiment.new(definition)
     experiment.runs = [
-        Run(
-            definition=definition,
-            eid=experiment.eid,
-            index=index,
-            name=f"r{index}",
-            active_state=active,
-            success_state=success,
-            params={"x": 1},
-        )
-        for index, (active, success) in enumerate(states)
+        [
+            Run(
+                definition=definition,
+                eid=experiment.eid,
+                index=index,
+                iteration=1,
+                active_state=active,
+                success_state=success,
+                params={"x": 1},
+            )
+            for index, (active, success) in enumerate(states)
+        ]
     ]
 
     experiment.recalculate_state()

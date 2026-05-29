@@ -50,7 +50,7 @@ def _ready_worker(
 ) -> Worker:
     """Build a Worker pre-assigned to ``definition``'s first run with archive in place."""
     worker = _idle_worker(home_dir)
-    worker.working = Experiment.new(definition=definition).runs[0]
+    worker.working = Experiment.new(definition=definition).runs[0][0]
     worker.archive_path = archive_path
     return worker
 
@@ -160,7 +160,7 @@ async def test_execute_run(tmp_path: Path) -> None:
 
     worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
 
-    worker.working = experiment.runs[0]
+    worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
     success = await worker.execute_run()
@@ -184,7 +184,7 @@ async def test_collect_results(tmp_path: Path) -> None:
 
     worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
 
-    worker.working = experiment.runs[0]
+    worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
     success = await worker.execute_run()
@@ -259,7 +259,7 @@ async def test_results_upload(
 
             await worker.upload_results()
 
-            response = await client.get(f"/runs/{run.eid}/{run.index}")
+            response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
             response.raise_for_status()
             submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED

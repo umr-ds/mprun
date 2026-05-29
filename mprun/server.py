@@ -196,27 +196,29 @@ async def run_results(
         ) from err
 
 
-@server.get("/runs/{eid}/{index}", response_model=Run)
+@server.get("/runs/{eid}/{index}/{iteration}", response_model=Run)
 async def get_run(
     eid: int,
     index: int,
+    iteration: int,
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> Run:
     """Return a single run by its composite identity (experiment ID + index)."""
     try:
-        return await em.get_run(rid=RunId(eid=eid, index=index))
+        return await em.get_run(rid=RunId(eid=eid, index=index, iteration=iteration))
     except NoSuchRunError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.get("/runs/{eid}/{index}/results")
+@server.get("/runs/{eid}/{index}/{iteration}/results")
 async def get_run_results(
     eid: int,
     index: int,
+    iteration: int,
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> FileResponse:
     """Download the results archive for a finished Run."""
-    rid = RunId(eid=eid, index=index)
+    rid = RunId(eid=eid, index=index, iteration=iteration)
     try:
         path = await em.get_run_results(rid=rid)
     except FileNotFoundError as err:

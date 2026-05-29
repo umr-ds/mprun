@@ -60,8 +60,9 @@ def _print_experiment(experiment: Experiment) -> None:
     console.print(table)
 
     table = Table("ID", "Active", "Success", title="Runs")
-    for run in experiment.runs:
-        table.add_row(str(run.run_id), run.active_state, run.success_state)
+    for runs in experiment.runs:
+        for run in runs:
+            table.add_row(str(run.run_id), run.active_state, run.success_state)
     console.print(table)
 
 
@@ -246,7 +247,7 @@ def create_experiment(
 
 
 def _download_run_results(
-    base_url: str | None, eid: int, index: int, output: Path
+    base_url: str | None, eid: int, index: int, iteration: int, output: Path
 ) -> Path | None:
     """Download the results archive for a single run and write it to disk.
 
@@ -254,6 +255,7 @@ def _download_run_results(
         base_url (str | None): Server base URL, or ``None`` to use ``DEFAULT_URL``.
         eid (int): Experiment ID.
         index (int): Run index within the experiment.
+        iteration (int): Iteration within an argument set.
         output (Path): Directory to write the results archive into.
 
     Returns:
@@ -265,7 +267,9 @@ def _download_run_results(
     """
     with _client_factory(base_url) as http:
         try:
-            resp = http.get(f"/runs/{eid}/{index}/results").raise_for_status()
+            resp = http.get(
+                f"/runs/{eid}/{index}/{iteration}/results"
+            ).raise_for_status()
         except HTTPStatusError as err:
             if err.response.status_code == codes.NOT_FOUND:
                 return None
@@ -304,11 +308,20 @@ def get_run_results(
     try:
         rid = RunId.from_str(run_id)
     except ValueError as err:
-        echo(f"Invalid run ID {run_id!r}: expected {{eid}}-{{index}}", err=True)
+        echo(
+            f"Invalid run ID {run_id!r}: expected {{eid}}-{{index}}-{{iteration}}",
+            err=True,
+        )
         raise Exit(1) from err
 
     try:
-        dest = _download_run_results(base_url, rid.eid, rid.index, output or Path())
+        dest = _download_run_results(
+            base_url=base_url,
+            eid=rid.eid,
+            index=rid.index,
+            iteration=rid.iteration,
+            output=output or Path(),
+        )
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No results for run {run_id!r}", err=True)
@@ -363,9 +376,15 @@ def get_experiment_results(
     with ThreadPoolExecutor() as pool:
         futures = {
             pool.submit(
-                _download_run_results, base_url, run.eid, run.index, out_dir
+                _download_run_results,
+                base_url=base_url,
+                eid=run.eid,
+                index=run.index,
+                iteration=run.iteration,
+                output=out_dir,
             ): run.index
-            for run in experiment.runs
+            for runs in experiment.runs
+            for run in runs
         }
         for future in as_completed(futures):
             index = futures[future]

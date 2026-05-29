@@ -205,7 +205,7 @@ def test_results_download(
 
         result = runner.invoke(
             client,
-            ["results", f"{run.eid}-{run.index}", "-o", str(out_dir)],
+            ["results", f"{run.eid}-{run.index}-{run.iteration}", "-o", str(out_dir)],
         )
     assert result.exit_code == 0
     saved = list(out_dir.iterdir())

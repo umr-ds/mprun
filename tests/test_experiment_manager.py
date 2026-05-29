@@ -94,7 +94,7 @@ async def test_dispatch(
     retrieved = await manager.get_experiment(eid=experiment.eid)
     assert retrieved.active_state == ActiveState.RUNNING
 
-    retrieved_run = retrieved.runs[dispatched.run.index]
+    retrieved_run = retrieved.runs[dispatched.run.index][dispatched.run.iteration]
     assert retrieved_run.run_id == dispatched.run.run_id
     assert retrieved_run.active_state == ActiveState.RUNNING
 
@@ -121,7 +121,7 @@ async def test_results_submit(
     assert result_path.is_file()
 
     retrieved = await manager.get_experiment(eid=experiment.eid)
-    submitted_run = retrieved.runs[run.index]
+    submitted_run = retrieved.runs[run.index][run.iteration]
     assert submitted_run.active_state == ActiveState.FINISHED
     assert submitted_run.success_state == SuccessState.SUCCESS
     assert retrieved.active_state == ActiveState.RUNNING
@@ -146,9 +146,9 @@ async def test_get_run_missing_raises(
     experiment = await _create_experiment(manager, definition, directory)
 
     with pytest.raises(NoSuchRunError):
-        await manager.get_run(rid=RunId(eid=experiment.eid, index=999))
+        await manager.get_run(rid=RunId(eid=experiment.eid, index=999, iteration=0))
     with pytest.raises(NoSuchRunError):
-        await manager.get_run(rid=RunId(eid=99999, index=0))
+        await manager.get_run(rid=RunId(eid=99999, index=0, iteration=0))
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_get_run_results_missing_raises(
     experiment = await _create_experiment(manager, definition, directory)
 
     with pytest.raises(FileNotFoundError):
-        await manager.get_run_results(rid=experiment.runs[0].run_id)
+        await manager.get_run_results(rid=experiment.runs[0][0].run_id)
 
 
 @pytest.mark.asyncio

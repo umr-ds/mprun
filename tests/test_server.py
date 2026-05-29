@@ -241,7 +241,7 @@ class TestRuns:
         tmp_path: Path,
         make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
     ) -> None:
-        """GET /runs/{eid}/{index} returns every run that the experiment expanded into."""
+        """GET /runs/{eid}/{index}/{iteration} returns every run that the experiment expanded into."""
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
@@ -266,11 +266,14 @@ class TestRuns:
                 response.raise_for_status()
                 experiment = Experiment.model_validate(response.json())
 
-                for run in experiment.runs:
-                    response = client.get(f"/runs/{run.eid}/{run.index}")
-                    response.raise_for_status()
-                    retrieved_run = Run.model_validate(response.json())
-                    assert run == retrieved_run
+                for runs in experiment.runs:
+                    for run in runs:
+                        response = client.get(
+                            f"/runs/{run.eid}/{run.index}/{run.iteration}"
+                        )
+                        response.raise_for_status()
+                        retrieved_run = Run.model_validate(response.json())
+                        assert run == retrieved_run
 
     def test_run_dispatch(
         self,
@@ -374,7 +377,7 @@ class TestRuns:
                 )
                 assert response.status_code == HTTPStatus.OK
 
-                response = client.get(f"/runs/{run.eid}/{run.index}")
+                response = client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
                 response.raise_for_status()
                 submitted_run = Run.model_validate(response.json())
                 assert submitted_run.active_state == ActiveState.FINISHED
@@ -476,8 +479,10 @@ class TestRuns:
                 worker = _register_worker(client)
 
                 # before submission: 404
-                run = experiment.runs[0]
-                response = client.get(f"/runs/{run.eid}/{run.index}/results")
+                run = experiment.runs[0][0]
+                response = client.get(
+                    f"/runs/{run.eid}/{run.index}/{run.iteration}/results"
+                )
                 assert response.status_code == HTTPStatus.NOT_FOUND
 
                 # dispatch + submit
@@ -504,7 +509,7 @@ class TestRuns:
 
                 # after submission: 200 with archive contents
                 response = client.get(
-                    f"/runs/{dispatched_run.eid}/{dispatched_run.index}/results"
+                    f"/runs/{dispatched_run.eid}/{dispatched_run.index}/{dispatched_run.iteration}/results"
                 )
                 assert response.status_code == HTTPStatus.OK
                 assert response.headers["content-type"] == "application/zip"
