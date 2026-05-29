@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from typer import Option, Typer
 
 from mprun import PACKAGE_NAME, __version__
+from mprun.custom_types import RunId
 from mprun.errors import (
     ArchiveValidationError,
     InvalidParametersError,
@@ -35,7 +36,6 @@ from mprun.errors import (
 )
 from mprun.experiment_manager import ExperimentManager
 from mprun.models import Experiment, ExperimentDefinition, Run, WorkerData, WorkerState
-from mprun.types import RunId
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)

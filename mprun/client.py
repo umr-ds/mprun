@@ -14,8 +14,8 @@ from rich.console import Console
 from rich.table import Table
 from typer import Argument, Exit, Option, Typer, echo
 
+from mprun.custom_types import RunId
 from mprun.models import Experiment, ExperimentDefinition, ValidationMode
-from mprun.types import RunId
 
 console = Console()
 client = Typer()

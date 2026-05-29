@@ -9,12 +9,12 @@ from zipfile import ZIP_LZMA, ZipFile
 
 import pytest
 
+from mprun.custom_types import TOMLScalar
 from mprun.models import (
     EXPERIMENT_DEFINITION_NAME,
     ExperimentDefinition,
     ValidationMode,
 )
-from mprun.types import TOMLScalar
 
 TEST_ROOT = Path(__file__).resolve().parent
 TEST_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_experiment"

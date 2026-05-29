@@ -13,6 +13,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
+from mprun.custom_types import ActiveState, SuccessState
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -22,7 +23,6 @@ from mprun.models import (
     WorkerData,
 )
 from mprun.server import DATA_PATH_ENV, server
-from mprun.types import ActiveState, SuccessState
 
 
 def _post_experiment(

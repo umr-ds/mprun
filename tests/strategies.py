@@ -2,8 +2,8 @@
 
 from hypothesis import strategies as st
 
+from mprun.custom_types import ActiveState, SuccessState, TOMLScalar
 from mprun.models import ExperimentDefinition
-from mprun.types import ActiveState, SuccessState, TOMLScalar
 
 identifier = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]*", fullmatch=True)
 

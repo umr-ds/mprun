@@ -20,13 +20,13 @@ from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
+from mprun.custom_types import SuccessState
 from mprun.errors import NoRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     Run,
     WorkerData,
 )
-from mprun.types import SuccessState
 
 logger = logging.getLogger(__name__)
 cli = Typer()

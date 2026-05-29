@@ -15,6 +15,7 @@ from tempfile import TemporaryDirectory
 
 from hypothesis import given
 
+from mprun.custom_types import ActiveState, SuccessState, TOMLScalar
 from mprun.models import (
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
@@ -23,7 +24,6 @@ from mprun.models import (
     ValidationMode,
     _expand_parameters,
 )
-from mprun.types import ActiveState, SuccessState, TOMLScalar
 from tests import strategies
 
 

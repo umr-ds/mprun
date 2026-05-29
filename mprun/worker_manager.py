@@ -4,9 +4,9 @@ from asyncio import Lock
 from time import time
 from uuid import uuid4
 
+from mprun.custom_types import RunId
 from mprun.errors import NoSuchRunError, NoSuchWorkerError
 from mprun.models import WorkerData, WorkerState
-from mprun.types import RunId
 
 
 class WorkerManager:

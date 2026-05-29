@@ -5,11 +5,11 @@ __version__ = "0.0.1"
 __all__ = [
     "SERVER_ADDRESS_ENV",
     "client",
+    "custom_types",
     "errors",
     "experiment_manager",
     "models",
     "server",
-    "types",
     "worker",
 ]
 

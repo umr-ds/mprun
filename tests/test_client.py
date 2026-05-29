@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 import mprun.client
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client import client
+from mprun.custom_types import ActiveState, SuccessState
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -22,7 +23,6 @@ from mprun.models import (
     Run,
 )
 from mprun.server import DATA_PATH_ENV, server
-from mprun.types import ActiveState, SuccessState
 
 runner = CliRunner()
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from mprun.custom_types import ActiveState, RunId, SuccessState
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.experiment_manager import ExperimentManager, PendingDispatch
 from mprun.models import (
@@ -16,7 +17,6 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
 )
-from mprun.types import ActiveState, RunId, SuccessState
 
 
 async def _create_experiment(

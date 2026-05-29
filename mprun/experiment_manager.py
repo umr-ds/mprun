@@ -15,6 +15,7 @@ from typing import BinaryIO
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
+from mprun.custom_types import ActiveState, RunId
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -22,7 +23,6 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
 )
-from mprun.types import ActiveState, RunId
 
 
 def _copy_to_file(src: BinaryIO, dst: Path) -> None:

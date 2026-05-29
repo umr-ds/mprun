@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from mprun.types import RunId
+from mprun.custom_types import RunId
 
 
 @dataclass(frozen=True)
