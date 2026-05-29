@@ -145,77 +145,67 @@ async def test_get_run(
 
 
 @pytest.mark.asyncio
-@given(name=st.text())
-async def test_execute_run(name: str) -> None:
+async def test_execute_run(tmp_path: Path) -> None:
     """Smoke test: worker executes the bundled real experiment scripts."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        directory = Path(data_dir)
-        worker_data = WorkerData.new(name=name)
-        dummy_client = AsyncClient()
+    worker_data = WorkerData.new(name="test_worker")
+    dummy_client = AsyncClient()
 
-        experiment_definition, experiment_definition_path = (
-            copy_experiment_to_test_environment(directory=directory)
-        )
-        archive_path = experiment_definition.create_archive(
-            experiment_toml=experiment_definition_path
-        )
-        experiment = Experiment.new(definition=experiment_definition)
+    experiment_definition, experiment_definition_path = (
+        copy_experiment_to_test_environment(directory=tmp_path)
+    )
+    archive_path = experiment_definition.create_archive(
+        experiment_toml=experiment_definition_path
+    )
+    experiment = Experiment.new(definition=experiment_definition)
 
-        worker = Worker(
-            http_client=dummy_client, meta_data=worker_data, home_dir=directory
-        )
+    worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
 
-        worker.working = experiment.runs[0]
-        worker.archive_path = archive_path
+    worker.working = experiment.runs[0]
+    worker.archive_path = archive_path
 
-        success = await worker.execute_run()
+    success = await worker.execute_run()
 
-        assert success == SuccessState.SUCCESS
+    assert success == SuccessState.SUCCESS
 
 
 @pytest.mark.asyncio
-@given(name=st.text())
-async def test_collect_results(name: str) -> None:
+async def test_collect_results(tmp_path: Path) -> None:
     """Smoke test: result archive contains every file the bundled scripts produce."""
-    with TemporaryDirectory(delete=True) as data_dir:
-        directory = Path(data_dir)
-        worker_data = WorkerData.new(name=name)
-        dummy_client = AsyncClient()
+    worker_data = WorkerData.new(name="test_worker")
+    dummy_client = AsyncClient()
 
-        experiment_definition, experiment_definition_path = (
-            copy_experiment_to_test_environment(directory=directory)
-        )
-        archive_path = experiment_definition.create_archive(
-            experiment_toml=experiment_definition_path
-        )
-        experiment = Experiment.new(definition=experiment_definition)
+    experiment_definition, experiment_definition_path = (
+        copy_experiment_to_test_environment(directory=tmp_path)
+    )
+    archive_path = experiment_definition.create_archive(
+        experiment_toml=experiment_definition_path
+    )
+    experiment = Experiment.new(definition=experiment_definition)
 
-        worker = Worker(
-            http_client=dummy_client, meta_data=worker_data, home_dir=directory
-        )
+    worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
 
-        worker.working = experiment.runs[0]
-        worker.archive_path = archive_path
+    worker.working = experiment.runs[0]
+    worker.archive_path = archive_path
 
-        success = await worker.execute_run()
-        assert success == SuccessState.SUCCESS
+    success = await worker.execute_run()
+    assert success == SuccessState.SUCCESS
 
-        await worker.collect_results()
+    await worker.collect_results()
 
-        results_archive = worker.home_dir / RESULTS_ARCHIVE_NAME
-        assert results_archive.is_file()
+    results_archive = worker.home_dir / RESULTS_ARCHIVE_NAME
+    assert results_archive.is_file()
 
-        with ZipFile(results_archive, "r") as zf:
-            contents = zf.namelist()
-            assert "stdout.setup" in contents
-            assert "stderr.setup" in contents
-            assert "stdout" in contents
-            assert "stderr" in contents
-            assert "envfile" in contents
-            assert "test_file.txt" in contents
-            assert "test_dir/nested_file.txt" in contents
-            assert "working_file.txt" in contents
-            assert "working_dir/nested_working_file.txt" in contents
+    with ZipFile(results_archive, "r") as zf:
+        contents = zf.namelist()
+        assert "stdout.setup" in contents
+        assert "stderr.setup" in contents
+        assert "stdout" in contents
+        assert "stderr" in contents
+        assert "envfile" in contents
+        assert "test_file.txt" in contents
+        assert "test_dir/nested_file.txt" in contents
+        assert "working_file.txt" in contents
+        assert "working_dir/nested_working_file.txt" in contents
 
 
 @pytest.mark.asyncio
