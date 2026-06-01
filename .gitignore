@@ -332,3 +332,4 @@ pyrightconfig.json
 
 database.json
 *.tar.gz
+*.zip
