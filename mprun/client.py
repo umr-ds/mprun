@@ -12,16 +12,25 @@ from httpx import Client, HTTPStatusError, codes
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
-from typer import Argument, Exit, Option, Typer, echo
+from typer import Argument, Context, Exit, Option, Typer, echo
 
 from mprun.custom_types import RunId
 from mprun.models import Experiment, ExperimentDefinition, ValidationMode
+from mprun.tui import run_tui
 
 console = Console()
-client = Typer()
+client = Typer(no_args_is_help=False)
 
 
 DEFAULT_URL = "http://localhost:8000"
+
+
+@client.callback(invoke_without_command=True)
+def _tui_entry(ctx: Context) -> None:
+    """Launch interactive TUI when no subcommand is given."""
+    if ctx.invoked_subcommand is None:
+        run_tui()
+        raise Exit(0)
 
 
 def _default_client_factory(base_url: str | None) -> AbstractContextManager[Client]:
