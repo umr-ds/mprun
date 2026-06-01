@@ -1,0 +1,26 @@
+#content {
+    height: 1fr;
+}
+
+#experiment-list, #run-list {
+    width: 30%;
+    border: solid $accent;
+}
+
+#detail-panel, #run-panel {
+    width: 1fr;
+    border: solid $accent;
+    padding: 1 2;
+}
+
+ConfirmDownloadDialog {
+    align: center middle;
+}
+
+#confirm-dialog {
+    width: 60;
+    height: auto;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}

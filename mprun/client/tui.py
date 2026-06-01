@@ -23,36 +23,6 @@ from mprun.models import Experiment
 
 REFRESH_TIME: float = 30.0
 
-CSS = """
-#content {
-    height: 1fr;
-}
-
-#experiment-list, #run-list {
-    width: 30%;
-    border: solid $accent;
-}
-
-#detail-panel, #run-panel {
-    width: 1fr;
-    border: solid $accent;
-    padding: 1 2;
-}
-
-ConfirmDownloadDialog {
-    align: center middle;
-}
-
-#confirm-dialog {
-    width: 60;
-    height: auto;
-    border: solid $accent;
-    background: $surface;
-    padding: 1 2;
-}
-
-"""
-
 
 class ConfirmDownloadDialog(ModalScreen[bool]):
     """Confirmation dialog for result download."""
@@ -248,7 +218,7 @@ class ExperimentTui(App):
         ("d", "download", "Download results"),
     ]
 
-    CSS: ClassVar[str] = CSS
+    CSS_PATH = "tui.tcss"
 
     def __init__(self, base_url: str = DEFAULT_URL) -> None:
         """Initialise the TUI.
