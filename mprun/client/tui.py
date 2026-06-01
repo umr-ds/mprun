@@ -14,7 +14,12 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.client.client import DEFAULT_URL, download_run_results
+from mprun.client.client import (
+    DEFAULT_URL,
+    download_run_results,
+    get_experiment_results_parallel,
+)
+from mprun.models import Experiment
 
 REFRESH_TIME: float = 30.0
 
@@ -240,6 +245,7 @@ class ExperimentTui(App):
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh now"),
+        ("d", "download", "Download results"),
     ]
 
     CSS: ClassVar[str] = CSS
@@ -351,6 +357,46 @@ class ExperimentTui(App):
         if idx is not None and idx < len(self._experiments):
             exp = self._experiments[idx]
             self.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
+
+    def action_download(self) -> None:
+        """Prompt for confirmation then download all results for the selected experiment."""
+        lv = self.query_one("#experiment-list", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._experiments):
+            return
+        exp = self._experiments[idx]
+
+        def on_confirm(result: object) -> None:
+            if result:
+                self.call_later(self._do_download_experiment, exp)
+
+        self.push_screen(ConfirmDownloadDialog(exp["name"]), on_confirm)
+
+    async def _do_download_experiment(self, exp: dict) -> None:
+        """Download all run results for an experiment into a subdirectory named by EID."""
+        experiment = Experiment.model_validate(exp)
+        out_dir = Path.cwd() / str(exp["eid"])
+        out_dir.mkdir(exist_ok=True)
+
+        def _sync_download() -> tuple[list[Path], list[int], bool]:
+            with httpx.Client(base_url=self.base_url) as client:
+                return get_experiment_results_parallel(client, experiment, out_dir)
+
+        try:
+            saved, skipped, failed = await asyncio.to_thread(_sync_download)
+        except (httpx.HTTPStatusError, httpx.RequestError) as err:
+            self.notify(f"Download failed: {err}", severity="error")
+            return
+
+        parts = [f"{len(saved)} saved"]
+        if skipped:
+            parts.append(f"{len(skipped)} not ready")
+        if failed:
+            parts.append("some errors")
+        self.notify(
+            f"{', '.join(parts)} → {out_dir}",
+            severity="warning" if failed else "information",
+        )
 
     def action_refresh(self) -> None:
         """Refresh immediately."""
