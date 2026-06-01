@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import logging
 import os
 from asyncio import Lock, to_thread
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _copy_to_file(src: BinaryIO, dst: Path) -> None:
@@ -78,6 +81,11 @@ class ExperimentManager:
                 runs = {run.run_id: run for runs in experiment.runs for run in runs}
                 self._runs.update(runs)
         self._pending_dispatches = set()
+        logger.info(
+            "ExperimentManager initialised: %d active experiments, %d runs loaded",
+            len(self._experiments),
+            len(self._runs),
+        )
 
     @property
     def _experiments_table(self) -> Table:
@@ -170,6 +178,12 @@ class ExperimentManager:
             runs = {run.run_id: run for runs in experiment.runs for run in runs}
             self._runs.update(runs)
 
+            logger.info(
+                "Experiment created: eid=%d name=%r runs=%d",
+                experiment.eid,
+                experiment.definition.name,
+                len(runs),
+            )
             return experiment
 
     async def _get_experiment_from_db(self, eid: int) -> Experiment | None:
@@ -204,9 +218,12 @@ class ExperimentManager:
         async with self._state_mutex:
             experiment = self._experiments.get(eid)
             if experiment is not None:
+                logger.debug("Experiment %d cache hit", eid)
                 return experiment
+            logger.debug("Experiment %d cache miss: querying database", eid)
             experiment = await self._get_experiment_from_db(eid)
             if experiment is None:
+                logger.debug("No such experiment: %d", eid)
                 raise NoSuchExperimentError(eid=eid)
             return experiment
 
@@ -225,7 +242,9 @@ class ExperimentManager:
         async with self._state_mutex:
             run = self._runs.get(rid)
             if run is not None:
+                logger.debug("Run %s cache hit", rid)
                 return run
+            logger.debug("Run %s cache miss: querying database", rid)
             experiment = await self._get_experiment_from_db(rid.eid)
             if (
                 experiment is None
@@ -265,9 +284,13 @@ class ExperimentManager:
 
                 run = runs[0]
                 self._pending_dispatches.add(run.run_id)
-
+                logger.info(
+                    "Run %s claimed for dispatch",
+                    run.run_id,
+                )
                 return PendingDispatch(manager=self, experiment=experiment, run=run)
 
+            logger.debug("No waiting runs available")
             return None
 
     async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
@@ -287,8 +310,16 @@ class ExperimentManager:
         """
         async with self._state_mutex:
             if run.run_id not in self._runs:
+                logger.error(
+                    "Submit results for Run %s failed: no such Run", run.run_id
+                )
                 raise NoSuchRunError(run_id=run.run_id)
             if run.eid not in self._experiments:
+                logger.error(
+                    "Submit results for Run %s failed: no experiment %d",
+                    run.run_id,
+                    run.eid,
+                )
                 raise NoSuchExperimentError(eid=run.eid)
 
             experiment = self._experiments[run.eid]
@@ -302,12 +333,19 @@ class ExperimentManager:
             experiment.recalculate_state()
             await self._update(experiment=experiment)
 
+            logger.info(
+                "Run results stored: rid=%s state=%s",
+                run.run_id,
+                run.active_state,
+            )
+
             # if the experiment is finished now, we can evict it from memory
             if not experiment.active:
                 del self._experiments[experiment.eid]
                 for runs in experiment.runs:
                     for finished_run in runs:
                         self._runs.pop(finished_run.run_id, None)
+                logger.info("Experiment finished and evicted: eid=%d", experiment.eid)
 
     async def get_run_results(self, rid: RunId) -> Path:
         """Return the path to a run's results archive.
@@ -366,7 +404,17 @@ class ExperimentManager:
             operation.experiment.recalculate_state()
             try:
                 await self._update(experiment=operation.experiment)
+                logger.info(
+                    "Run dispatched: rid=%s, wid=%d",
+                    operation.run.run_id,
+                    operation.wid,
+                )
             except OSError:
+                logger.exception(
+                    "Dispatch commit failed, rolling back: rid=%s wid=%d",
+                    operation.run.run_id,
+                    operation.wid,
+                )
                 operation.run.active_state = prev_active
                 operation.run.wid = prev_wid
                 operation.experiment.recalculate_state()
@@ -382,6 +430,7 @@ class ExperimentManager:
         """
         async with self._state_mutex:
             self._pending_dispatches.discard(operation.run.run_id)
+            logger.debug("Dispatch cancelled: rid=%s", operation.run.run_id)
 
 
 @dataclass

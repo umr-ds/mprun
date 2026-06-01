@@ -129,6 +129,7 @@ select = [
     "FBT",
     "FLY",
     "FURB",
+    "G",
     "I",
     "ISC",
     "LOG",

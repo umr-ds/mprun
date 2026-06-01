@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     data_path_str = os.getenv(DATA_PATH_ENV)
     data_path = Path.home() / ".mprun" if data_path_str is None else Path(data_path_str)
 
-    logger.info(f"Starting server in {data_path}")
+    logger.info("Starting server in %s", data_path)
     app.state.experiment_manager = ExperimentManager(data_path=data_path)
     app.state.worker_manager = WorkerManager()
     try:
@@ -252,7 +252,7 @@ async def get_worker(
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> WorkerData:
     """Return a single worker by ID."""
-    logger.debug(f"Received worker get request for id {wid}")
+    logger.debug("Received worker get request for id %d", wid)
     try:
         return await wm.get(wid=wid)
     except NoSuchWorkerError as err:
@@ -264,7 +264,7 @@ async def check_in_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:
     """Record a worker heartbeat to confirm it is still alive."""
-    logger.debug(f"Received worker checkin for id {wid}")
+    logger.debug("Received worker checkin for id %d", wid)
     try:
         await wm.check_in(wid=wid)
         return Response(status_code=HTTPStatus.OK)

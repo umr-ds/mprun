@@ -100,7 +100,7 @@ class Worker:
         response.raise_for_status()
 
         worker_data = WorkerData.model_validate(response.json())
-        logger.info(f"Registered successfully with ID: {worker_data.wid}")
+        logger.info("Registered successfully with ID: %d", worker_data.wid)
 
         return worker_data
 
@@ -147,12 +147,8 @@ class Worker:
                         if run is None:
                             continue
                         self.working = run
-                    except HTTPStatusError as err:
-                        logger.error(
-                            "Error performing checkin with server: %s",
-                            err,
-                            exc_info=True,
-                        )
+                    except HTTPStatusError:
+                        logger.exception("Error performing checkin with server")
                         continue
                     state = await self.execute_run()
                     self.working.success_state = state
@@ -188,7 +184,7 @@ class Worker:
                 return None
 
             run = Run.model_validate_json(response.headers["X-Run"], strict=True)
-            logger.debug(f"Received run: {run.run_id}")
+            logger.debug("Received run: %s", run.run_id)
 
             with TemporaryDirectory(delete=True) as archive_dir:
                 logger.debug("Saving Experiment archive")
@@ -225,7 +221,7 @@ class Worker:
         if self.working is None:
             raise NoRunError
 
-        logger.info(f"Executing Run {self.working.run_id}")
+        logger.info("Executing Run %s", self.working.run_id)
         env = await self.prepare_run_environment()
 
         if self.working.definition.setup_executable is not None:
@@ -330,7 +326,7 @@ class Worker:
                 destination,
             ) in self.working.definition.environment_files.items():
                 source = self.execution_dir / env_file
-                logger.debug(f"Copying {source} to {destination}")
+                logger.debug("Copying %s to %s", source, destination)
                 if source.is_file():
                     await to_thread(copy, source, destination)
                 elif source.is_dir():
@@ -416,7 +412,7 @@ class Worker:
             raise NoRunError
 
         archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
-        logger.info(f"Uploading results for run {self.working.run_id}")
+        logger.info("Uploading results for run %s", self.working.run_id)
         with archive_path.open("rb") as f:
             response = await self.http_client.post(
                 "/runs/result",
@@ -441,10 +437,8 @@ class Worker:
             await sleep(SLEEP_TIME)
             try:
                 await self.check_in()
-            except HTTPStatusError as err:
-                logger.error(
-                    "Error performing checkin with server: %s", err, exc_info=True
-                )
+            except HTTPStatusError:
+                logger.exception("Error performing checkin with server")
 
     async def check_in(self) -> None:
         """Send a heartbeat to the server and update ``last_check_in``.
