@@ -20,7 +20,7 @@ from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.custom_types import SuccessState
+from mprun.custom_types import ActiveState, SuccessState
 from mprun.errors import NoRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -152,6 +152,7 @@ class Worker:
                         continue
                     state = await self.execute_run()
                     self.working.success_state = state
+                    self.working.active_state = ActiveState.FINISHED
                     await self.collect_results()
                     await self.upload_results()
                     self.working = None
@@ -454,6 +455,17 @@ class Worker:
         self.meta_data.last_check_in = time()
 
 
+async def _run(server_address: str, name: str, home_directory: Path) -> None:
+    try:
+        worker = await Worker.init(
+            server_address=server_address, name=name, home_directory=home_directory
+        )
+    except HTTPStatusError as err:
+        logger.fatal("Worker registration failed: %s", err, exc_info=True)
+        raise Exit(1) from err
+    await worker.run()
+
+
 @cli.command()
 def main(
     verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
@@ -482,17 +494,9 @@ def main(
         raise Exit(1)
     home_directory = Path(home_directory)
 
-    try:
-        worker = asyncio.run(
-            Worker.init(
-                server_address=server_address, name=name, home_directory=home_directory
-            )
-        )
-    except HTTPStatusError as err:
-        logger.fatal("Worker registration failed: %s", err, exc_info=True)
-        raise Exit(1) from err
-
-    asyncio.run(worker.run())
+    asyncio.run(
+        _run(server_address=server_address, name=name, home_directory=home_directory)
+    )
 
 
 if __name__ == "__main__":
