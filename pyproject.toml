@@ -70,7 +70,7 @@ dev = [
 Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 
 [project.scripts]
-mprun_client = "mprun.client:client"
+mprun_client = "mprun.client.cli:client"
 mprun_server = "mprun.server:cli"
 mprun_worker = "mprun.worker:cli"
 
@@ -165,7 +165,7 @@ ignore = [
     "S", # there's a bunch of things (like plenty of asserts) which are entirely normal for tests
     "PLR2004", # tests need to compare against known good ('magic') values
 ]
-"mprun/client.py" = [
+"mprun/client/cli.py" = [
     "FBT", # that's just how CLI flags work...
 ]
 "mprun/server.py" = [

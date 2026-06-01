@@ -14,9 +14,9 @@ from rich.console import Console
 from rich.table import Table
 from typer import Argument, Context, Exit, Option, Typer, echo
 
+from mprun.client.tui import run_tui
 from mprun.custom_types import RunId
 from mprun.models import Experiment, ExperimentDefinition, ValidationMode
-from mprun.tui import run_tui
 
 console = Console()
 client = Typer(no_args_is_help=False)

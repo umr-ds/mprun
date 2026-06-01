@@ -11,9 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-import mprun.client
+import mprun.client.cli
 from mprun import SERVER_ADDRESS_ENV
-from mprun.client import client
+from mprun.client.cli import client
 from mprun.custom_types import ActiveState, SuccessState
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -29,13 +29,13 @@ runner = CliRunner()
 
 @contextmanager
 def _patched_client(tmp_path: Path) -> Iterator[TestClient]:
-    """Patch ``mprun.client._client_factory`` to talk to a TestClient-wrapped server."""
+    """Patch ``mprun.client.cli._client_factory`` to talk to a TestClient-wrapped server."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
         mp.setenv(SERVER_ADDRESS_ENV, "8086")
         with TestClient(server) as http_client:
             mp.setattr(
-                mprun.client,
+                mprun.client.cli,
                 "_client_factory",
                 lambda _url: nullcontext(http_client),
             )
