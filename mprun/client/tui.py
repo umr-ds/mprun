@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+from pathlib import Path
 from typing import ClassVar
 
 import httpx
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
-from textual.screen import Screen
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen, Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.client.client import DEFAULT_URL
+from mprun.client.client import DEFAULT_URL, download_run_results
 
 REFRESH_TIME: float = 30.0
 
@@ -31,7 +33,57 @@ CSS = """
     border: solid $accent;
     padding: 1 2;
 }
+
+ConfirmDownloadDialog {
+    align: center middle;
+}
+
+#confirm-dialog {
+    width: 60;
+    height: auto;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
 """
+
+
+class ConfirmDownloadDialog(ModalScreen[bool]):
+    """Confirmation dialog for result download."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("y", "confirm", "Yes"),
+        ("n", "cancel", "No"),
+        ("escape", "cancel", "No"),
+    ]
+
+    def __init__(self, run_name: str) -> None:
+        """Initialise dialog.
+
+        Args:
+            run_name: Display name of the run to download.
+        """
+        super().__init__()
+        self.run_name = run_name
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        with Vertical(id="confirm-dialog"):
+            yield Static(
+                f"Download results for [bold]{self.run_name}[/bold]?\n\n"
+                "[bold][y][/bold] [u]Y[/u]es    [bold][n][/bold] [u]N[/u]o"
+            )
+
+    def action_confirm(self) -> None:
+        """Confirm download."""
+        confirmed: bool = True
+        self.dismiss(confirmed)
+
+    def action_cancel(self) -> None:
+        """Cancel download."""
+        confirmed: bool = False
+        self.dismiss(confirmed)
 
 
 class DetailView(Screen):
@@ -42,6 +94,7 @@ class DetailView(Screen):
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("escape", "dismiss", "Back"),
         ("r", "refresh", "Refresh now"),
+        ("d", "download", "Download results"),
     ]
 
     def __init__(self, base_url: str, eid: int) -> None:
@@ -135,6 +188,44 @@ class DetailView(Screen):
         if idx is not None and idx < len(self._runs):
             exp_name = self._runs[idx].get("definition", {}).get("name", "?")
             self._update_run_panel(self._runs[idx], exp_name)
+
+    def action_download(self) -> None:
+        """Prompt for confirmation then download selected run's results."""
+        lv = self.query_one("#run-list", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._runs):
+            return
+        run = self._runs[idx]
+        exp_name = run.get("definition", {}).get("name", "?")
+        run_name = f"{exp_name}-{run['index']}-{run['iteration']}"
+
+        def on_confirm(result: object) -> None:
+            if result:
+                self.call_later(self._do_download, run)
+
+        self.app.push_screen(ConfirmDownloadDialog(run_name), on_confirm)
+
+    async def _do_download(self, run: dict) -> None:
+        """Download run results to the current working directory."""
+        eid = run["eid"]
+        index = run["index"]
+        iteration = run["iteration"]
+        output = Path.cwd()
+
+        def _sync_download() -> Path | None:
+            with httpx.Client(base_url=self.base_url) as client:
+                return download_run_results(client, eid, index, iteration, output)
+
+        try:
+            result = await asyncio.to_thread(_sync_download)
+        except (httpx.HTTPStatusError, httpx.RequestError) as err:
+            self.notify(f"Download failed: {err}", severity="error")
+            return
+
+        if result is None:
+            self.notify("No results available yet", severity="warning")
+        else:
+            self.notify(f"Saved to {result}")
 
     def action_refresh(self) -> None:
         """Refresh immediately."""
