@@ -10,8 +10,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Footer, Header
 
 from mprun import SERVER_ADDRESS_ENV
-
-DEFAULT_URL = "http://localhost:8000"
+from mprun.client.client import DEFAULT_URL
 
 CSS = """
 DataTable {

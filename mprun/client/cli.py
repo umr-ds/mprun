@@ -2,46 +2,51 @@
 
 """CLI client for interacting with the server."""
 
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import AbstractContextManager
 from lzma import LZMAError
 from pathlib import Path
 
-from httpx import Client, HTTPStatusError, codes
+from httpx import HTTPStatusError, RequestError, codes
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 from typer import Argument, Context, Exit, Option, Typer, echo
 
+from mprun.client.client import (
+    _client_factory,
+    download_run_results,
+    get_experiment_results_parallel,
+    submit_experiment,
+)
 from mprun.client.tui import run_tui
 from mprun.custom_types import RunId
-from mprun.models import Experiment, ExperimentDefinition, ValidationMode
+from mprun.models import Experiment
 
 console = Console()
 client = Typer(no_args_is_help=False)
 
 
-DEFAULT_URL = "http://localhost:8000"
+def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:
+    """Print a human-readable error message to stderr for an HTTP error from the create endpoint.
 
+    Extracts the ``detail`` field from the JSON response body when available, and maps
+    known HTTP status codes to specific messages.
 
-@client.callback(invoke_without_command=True)
-def _tui_entry(ctx: Context) -> None:
-    """Launch interactive TUI when no subcommand is given."""
-    if ctx.invoked_subcommand is None:
-        run_tui()
-        raise Exit(0)
-
-
-def _default_client_factory(base_url: str | None) -> AbstractContextManager[Client]:
-    """Return an instance of httpx.Client configured with ``base_url``, falling back to ``DEFAULT_URL``."""
-    return Client(base_url=base_url or DEFAULT_URL)
-
-
-# allows us to inject different client for testing
-_client_factory: Callable[[str | None], AbstractContextManager[Client]] = (
-    _default_client_factory
-)
+    Args:
+        err (HTTPStatusError): The HTTP error raised by the create experiment request.
+    """
+    try:
+        detail = err.response.json().get("detail", str(err))
+    except Exception:  # noqa: BLE001
+        detail = str(err)
+    status = err.response.status_code
+    if status == codes.BAD_REQUEST:
+        echo(f"Invalid experiment parameters: {detail}", err=True)
+    elif status == codes.UNPROCESSABLE_ENTITY:
+        echo(f"Invalid experiment definition or archive: {detail}", err=True)
+    elif status == codes.INTERNAL_SERVER_ERROR:
+        echo(f"Server error: {detail}", err=True)
+    else:
+        echo(f"HTTP error {status}: {detail}", err=True)
 
 
 def _print_experiments(experiments: list[Experiment]) -> None:
@@ -75,6 +80,14 @@ def _print_experiment(experiment: Experiment) -> None:
     console.print(table)
 
 
+@client.callback(invoke_without_command=True)
+def _tui_entry(ctx: Context) -> None:
+    """Launch interactive TUI when no subcommand is given."""
+    if ctx.invoked_subcommand is None:
+        run_tui()
+        raise Exit(0)
+
+
 @client.command("list", help="Get list of all experiments")
 def list_experiments(
     base_url: str | None = Option(
@@ -86,8 +99,8 @@ def list_experiments(
 ) -> None:
     """Get list of all experiments."""
     try:
-        with _client_factory(base_url) as client:
-            resp = client.get("/experiments")
+        with _client_factory(base_url) as http:
+            resp = http.get("/experiments")
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
         raise Exit(1) from err
@@ -119,8 +132,8 @@ def get_experiment(
 ) -> None:
     """Get specific experiment by its ID."""
     try:
-        with _client_factory(base_url) as client:
-            resp = client.get(f"/experiments/{eid}")
+        with _client_factory(base_url) as http:
+            resp = http.get(f"/experiments/{eid}")
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No experiment with ID {eid}", err=True)
@@ -141,67 +154,6 @@ def get_experiment(
         _print_experiment(experiment)
 
 
-def _load_experiment_archive(
-    experiment_path: Path,
-) -> tuple[ExperimentDefinition, Path]:
-    """Load an experiment definition from a TOML file and create its ZIP archive.
-
-    On any error, prints a message to stderr and raises ``Exit(1)``.
-
-    Args:
-        experiment_path (Path): Path to the experiment's TOML definition file.
-
-    Returns:
-        tuple[ExperimentDefinition, Path]: The parsed definition and the path to the
-            created archive.
-    """
-    try:
-        definition = ExperimentDefinition.load_toml(
-            file_path=experiment_path, validation_mode=ValidationMode.DATA_AND_FILES
-        )
-        archive_path = definition.create_archive(experiment_toml=experiment_path)
-    except FileNotFoundError as err:
-        echo(f"Error accessing file: {err}", err=True)
-        raise Exit(1) from err
-    except PermissionError as err:
-        echo(f"Error accessing file: {err}", err=True)
-        raise Exit(1) from err
-    except OSError as err:
-        echo(f"Error reading file: {err}", err=True)
-        raise Exit(1) from err
-    except ValidationError as err:
-        echo(f"Error validating experiment definition: {err}", err=True)
-        raise Exit(1) from err
-    except LZMAError as err:
-        echo(f"Error compressing archive: {err}", err=True)
-        raise Exit(1) from err
-    return definition, archive_path
-
-
-def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:
-    """Print a human-readable error message to stderr for an HTTP error from the create endpoint.
-
-    Extracts the ``detail`` field from the JSON response body when available, and maps
-    known HTTP status codes to specific messages.
-
-    Args:
-        err (HTTPStatusError): The HTTP error raised by the create experiment request.
-    """
-    try:
-        detail = err.response.json().get("detail", str(err))
-    except Exception:  # noqa: BLE001
-        detail = str(err)
-    status = err.response.status_code
-    if status == codes.BAD_REQUEST:
-        echo(f"Invalid experiment parameters: {detail}", err=True)
-    elif status == codes.UNPROCESSABLE_ENTITY:
-        echo(f"Invalid experiment definition or archive: {detail}", err=True)
-    elif status == codes.INTERNAL_SERVER_ERROR:
-        echo(f"Server error: {detail}", err=True)
-    else:
-        echo(f"HTTP error {status}: {detail}", err=True)
-
-
 @client.command("create", help="Create a new experiment from an experiment definition.")
 def create_experiment(
     experiment_file: str = Argument(help="Path to experiment definition"),
@@ -213,88 +165,29 @@ def create_experiment(
     ),
 ) -> None:
     """Create a new experiment from an experiment definition."""
-    experiment_path = Path(experiment_file)
-    if not experiment_path.exists():
-        echo(f"File {experiment_path} does not exist.", err=True)
-        raise Exit(1)
-
-    experiment_definition, archive_path = _load_experiment_archive(experiment_path)
-
-    echo(f"Creating experiment with name {experiment_definition.name}")
-
     try:
-        with (
-            archive_path.open("rb") as archive_file,
-            _client_factory(base_url) as client,
-        ):
-            resp = client.post(
-                "/experiments",
-                data={"experiment_definition": experiment_definition.model_dump_json()},
-                files={
-                    "archive": (
-                        "experiment_archive.zip",
-                        archive_file,
-                        "application/zip",
-                    )
-                },
-            ).raise_for_status()
+        with _client_factory(base_url) as http:
+            experiment, resp_text = submit_experiment(
+                http_client=http, experiment_path=Path(experiment_file)
+            )
+    except (
+        OSError,
+        LZMAError,
+        ValidationError,
+    ) as err:
+        echo(f"Failed to load experiment: {err}", err=True)
+        raise Exit(1) from err
+    except RequestError as err:
+        echo(f"Server unreachable: {err}", err=True)
+        raise Exit(1) from err
     except HTTPStatusError as err:
         _echo_create_experiment_http_error(err)
         raise Exit(1) from err
 
-    experiment: Experiment
-    try:
-        experiment = Experiment.model_validate(resp.json())
-    except ValidationError as err:
-        echo(f"Error validating response: {err}", err=True)
-        raise Exit(1) from err
-
     if print_json:
-        echo(resp.text)
+        echo(resp_text)
     else:
         _print_experiment(experiment)
-
-
-def _download_run_results(
-    base_url: str | None, eid: int, index: int, iteration: int, output: Path
-) -> Path | None:
-    """Download the results archive for a single run and write it to disk.
-
-    Args:
-        base_url (str | None): Server base URL, or ``None`` to use ``DEFAULT_URL``.
-        eid (int): Experiment ID.
-        index (int): Run index within the experiment.
-        iteration (int): Iteration within an argument set.
-        output (Path): Directory to write the results archive into.
-
-    Returns:
-        Path | None: Path to the saved archive, or ``None`` if no results are available yet
-            (server returned 404).
-
-    Raises:
-        HTTPStatusError: If the server returns any non-2xx response other than 404.
-    """
-    with _client_factory(base_url) as http:
-        try:
-            resp = http.get(
-                f"/runs/{eid}/{index}/{iteration}/results"
-            ).raise_for_status()
-        except HTTPStatusError as err:
-            if err.response.status_code == codes.NOT_FOUND:
-                return None
-            raise
-
-    disposition = resp.headers.get("content-disposition", "")
-    filename = f"results_{eid}_{index}.zip"
-    for raw_part in disposition.split(";"):
-        stripped = raw_part.strip()
-        if stripped.startswith("filename="):
-            filename = stripped.removeprefix("filename=").strip('"')
-            break
-
-    dest = output / filename
-    dest.write_bytes(resp.content)
-    return dest
 
 
 @client.command("results", help="Download results archive for a specific run.")
@@ -324,13 +217,14 @@ def get_run_results(
         raise Exit(1) from err
 
     try:
-        dest = _download_run_results(
-            base_url=base_url,
-            eid=rid.eid,
-            index=rid.index,
-            iteration=rid.iteration,
-            output=output or Path(),
-        )
+        with _client_factory(base_url) as http:
+            dest = download_run_results(
+                http_client=http,
+                eid=rid.eid,
+                index=rid.index,
+                iteration=rid.iteration,
+                output=output or Path(),
+            )
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No results for run {run_id!r}", err=True)
@@ -364,49 +258,24 @@ def get_experiment_results(
     try:
         with _client_factory(base_url) as http:
             resp = http.get(f"/experiments/{eid}").raise_for_status()
+
+            try:
+                experiment = Experiment.model_validate(resp.json())
+            except ValidationError as err:
+                echo(f"Error validating response: {err}", err=True)
+                raise Exit(1) from err
+
+            saved, skipped, failed = get_experiment_results_parallel(
+                http_client=http,
+                experiment=experiment,
+                out_dir=output or Path(),
+            )
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No experiment with ID {eid}", err=True)
         else:
             echo(f"HTTP error {err.response.status_code}: {err}", err=True)
         raise Exit(1) from err
-
-    try:
-        experiment = Experiment.model_validate(resp.json())
-    except ValidationError as err:
-        echo(f"Error validating response: {err}", err=True)
-        raise Exit(1) from err
-
-    out_dir = output or Path()
-    saved: list[Path] = []
-    skipped: list[int] = []
-    failed = False
-
-    with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(
-                _download_run_results,
-                base_url=base_url,
-                eid=run.eid,
-                index=run.index,
-                iteration=run.iteration,
-                output=out_dir,
-            ): run.index
-            for runs in experiment.runs
-            for run in runs
-        }
-        for future in as_completed(futures):
-            index = futures[future]
-            try:
-                result = future.result()
-            except HTTPStatusError as err:
-                echo(f"HTTP error downloading run {index}: {err}", err=True)
-                failed = True
-                continue
-            if result is None:
-                skipped.append(index)
-            else:
-                saved.append(result)
 
     for path in sorted(saved):
         echo(f"Saved: {path}")
