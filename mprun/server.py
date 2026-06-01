@@ -10,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 from zipfile import BadZipFile
 
+import platformdirs
 import uvicorn
 from fastapi import (
     Depends,
@@ -46,7 +47,10 @@ DATA_PATH_ENV = "MPRUN_DATA_PATH"
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI voodoo to integrate state."""
     data_path_str = os.getenv(DATA_PATH_ENV)
-    data_path = Path.home() / ".mprun" if data_path_str is None else Path(data_path_str)
+    if data_path_str is None:
+        data_path = Path(platformdirs.user_data_dir("mprun", ensure_exists=True))
+    else:
+        data_path = Path(data_path_str)
 
     logger.info("Starting server in %s", data_path)
     app.state.experiment_manager = ExperimentManager(data_path=data_path)
