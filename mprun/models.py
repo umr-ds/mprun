@@ -373,6 +373,7 @@ class Experiment(BaseModel):
         name (str): Human-readable experiment name. Does not have to be unique.
         active_state (ActiveState): Current active state. See ``ActiveState`` for semantics.
         success_state (SuccessState): Current success state. See ``SuccessState`` for semantics.
+        creation_timestamp (float): Timestamp of when this job was created.
         runs (list[list[Run]]): Runs generated from the parameter cross-product.
             Inner lists contains the configuration's iterations.
             Will always contain at least 1 Run.
@@ -383,6 +384,7 @@ class Experiment(BaseModel):
     name: str
     active_state: ActiveState
     success_state: SuccessState
+    creation_timestamp: float
     runs: list[list[Run]]
 
     def __str__(self) -> str:
@@ -407,6 +409,32 @@ class Experiment(BaseModel):
             for run in runs
             if run.active_state == ActiveState.WAITING
         ]
+
+    @property
+    def started_running(self) -> float | None:
+        """Timestamp of when the first Run was dispatched. None, if all Runs are still waiting."""
+        start_times = [
+            run.started_running
+            for runs in self.runs
+            for run in runs
+            if run.started_running is not None
+        ]
+        if not start_times:
+            return None
+        return min(start_times)
+
+    @property
+    def finished_running(self) -> float | None:
+        """Timestamp of when the last Run finished. None, if there are still Waiting/Running Runs."""
+        end_times = [
+            run.finished_running
+            for runs in self.runs
+            for run in runs
+            if run.finished_running is not None
+        ]
+        if not end_times:
+            return None
+        return max(end_times)
 
     @classmethod
     def new(cls, definition: ExperimentDefinition) -> Experiment:
@@ -445,6 +473,7 @@ class Experiment(BaseModel):
             name=definition.name,
             active_state=active_state,
             success_state=success_state,
+            creation_timestamp=time(),
             runs=runs,
         )
 
@@ -499,6 +528,8 @@ class Run(BaseModel):
             yet dispatched.
         active_state (ActiveState): Current active state. See ``ActiveState`` for semantics.
         success_state (SuccessState): Current success state. See ``SuccessState`` for semantics.
+        started_running (float | None): Timestamp of when this Run was dispatched. None if it's still waiting.
+        finished_running (float | None): Timestamp of when the Worker finished executing this Run. None if it's still waiting or running.
         params (dict[str, TOMLScalar]): Concrete parameter set for this run — one value per
             parameter from the parent experiment's parameter lists.
     """
@@ -510,6 +541,8 @@ class Run(BaseModel):
     wid: int | None = None
     active_state: ActiveState
     success_state: SuccessState
+    started_running: float | None = None
+    finished_running: float | None = None
     params: dict[str, TOMLScalar]
 
     def __str__(self) -> str:

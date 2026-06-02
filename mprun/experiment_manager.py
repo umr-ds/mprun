@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy, copyfileobj
 from tempfile import TemporaryDirectory
+from time import time
 from types import TracebackType
 from typing import BinaryIO
 
@@ -288,6 +289,7 @@ class ExperimentManager:
                     "Run %s claimed for dispatch",
                     run.run_id,
                 )
+                run.started_running = time()
                 return PendingDispatch(manager=self, experiment=experiment, run=run)
 
             logger.debug("No waiting runs available")
@@ -430,6 +432,7 @@ class ExperimentManager:
         """
         async with self._state_mutex:
             self._pending_dispatches.discard(operation.run.run_id)
+            operation.run.started_running = None
             logger.debug("Dispatch cancelled: rid=%s", operation.run.run_id)
 
 

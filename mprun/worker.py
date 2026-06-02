@@ -153,6 +153,7 @@ class Worker:
                     state = await self.execute_run()
                     self.working.success_state = state
                     self.working.active_state = ActiveState.FINISHED
+                    self.working.finished_running = time()
                     await self.collect_results()
                     await self.upload_results()
                     self.working = None
