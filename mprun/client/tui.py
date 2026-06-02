@@ -295,10 +295,14 @@ class ExperimentTui(App):
             self._visible_experiments = list(self._experiments)
         lv = self.query_one("#experiment-list", ListView)
         prev_index = lv.index if lv.index is not None else 0
+        max_name = max(
+            (len(e.get("name", "")) for e in self._visible_experiments), default=0
+        )
         await lv.clear()
         for exp in self._visible_experiments:
+            name = exp.get("name", "")
             ts = _fmt_ts(exp.get("creation_timestamp"))
-            await lv.append(ListItem(Label(f"{exp['name']}  [dim]{ts}[/dim]")))
+            await lv.append(ListItem(Label(f"{name:<{max_name}}  [dim]{ts}[/dim]")))
         if self._visible_experiments:
             new_index = min(prev_index, len(self._visible_experiments) - 1)
             lv.index = new_index
