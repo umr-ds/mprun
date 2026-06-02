@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import ClassVar
 
 import httpx
+from rapidfuzz import fuzz
+from rapidfuzz import process as fuzz_process
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -282,11 +284,15 @@ class ExperimentTui(App):
     async def _apply_filter(self) -> None:
         """Rebuild the experiment list applying the current search query."""
         query = self.query_one("#search-bar", Input).value.lower()
-        self._visible_experiments = (
-            [e for e in self._experiments if query in e.get("name", "").lower()]
-            if query
-            else list(self._experiments)
-        )
+        if query:
+            names = [e.get("name", "") for e in self._experiments]
+            matches = fuzz_process.extract(
+                query, names, scorer=fuzz.WRatio, score_cutoff=60
+            )
+            matches.sort(key=lambda m: m[1], reverse=True)
+            self._visible_experiments = [self._experiments[m[2]] for m in matches]
+        else:
+            self._visible_experiments = list(self._experiments)
         lv = self.query_one("#experiment-list", ListView)
         prev_index = lv.index if lv.index is not None else 0
         await lv.clear()

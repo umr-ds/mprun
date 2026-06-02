@@ -49,6 +49,7 @@ server = [
 ]
 client = [
     "httpx~=0.28.1",
+    "rapidfuzz~=3.14.5",
     "textual~=8.2.7",
 ]
 worker = [
