@@ -14,7 +14,6 @@ from pathlib import Path
 from shutil import copy, copytree, rmtree, unpack_archive
 from tempfile import TemporaryDirectory
 from time import time
-from typing import ClassVar
 from zipfile import ZIP_LZMA, ZipFile
 
 from httpx import AsyncClient, HTTPStatusError
@@ -23,6 +22,7 @@ from typer import Exit, Option, Typer
 from mprun import SERVER_ADDRESS_ENV
 from mprun.custom_types import ActiveState, SuccessState
 from mprun.errors import NoRunError
+from mprun.log import configure_logging
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     Run,
@@ -31,25 +31,6 @@ from mprun.models import (
 
 logger = logging.getLogger(__name__)
 cli = Typer()
-
-
-class _ColorFormatter(logging.Formatter):
-    _COLORS: ClassVar[dict[int, str]] = {
-        logging.DEBUG: "\033[90m",
-        logging.INFO: "\033[32m",
-        logging.WARNING: "\033[33m",
-        logging.ERROR: "\033[31m",
-        logging.CRITICAL: "\033[31m",
-    }
-    _RESET = "\033[0m"
-    _WHITE = "\033[97m"
-
-    def format(self, record: logging.LogRecord) -> str:
-        color = self._COLORS.get(record.levelno, "")
-        full = super().format(record)
-        prefix, _, msg = full.partition("\x00")
-        return f"{color}{prefix}{self._WHITE}{msg}{self._RESET}"
-
 
 WORKER_NAME_ENV = "MPRUN_WORKER_NAME"
 WORKER_HOME_DIR = "MPRUN_WORKER_DIRECTORY"
@@ -498,11 +479,7 @@ def main(
     from the environment, registers with the server, and enters the main loop.
     """
     log_level = logging.DEBUG if verbose else logging.INFO
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        _ColorFormatter(fmt="%(asctime)s %(levelname)s:%(name)-12s: \x00%(message)s")
-    )
-    logging.basicConfig(level=log_level, handlers=[handler])
+    configure_logging(log_level)
 
     server_address = getenv(SERVER_ADDRESS_ENV)
     if server_address is None:

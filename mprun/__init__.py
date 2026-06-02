@@ -8,6 +8,7 @@ __all__ = [
     "custom_types",
     "errors",
     "experiment_manager",
+    "logging",
     "models",
     "server",
     "worker",

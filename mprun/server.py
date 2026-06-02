@@ -36,6 +36,7 @@ from mprun.errors import (
     NoSuchWorkerError,
 )
 from mprun.experiment_manager import ExperimentManager
+from mprun.log import configure_logging
 from mprun.models import Experiment, ExperimentDefinition, Run, WorkerData, WorkerState
 from mprun.worker_manager import WorkerManager
 
@@ -284,12 +285,13 @@ def main(
 ) -> None:
     """Start the server."""
     log_level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=log_level)
+    configure_logging(log_level)
     uvicorn.run(
         "mprun.server:server",
         host=host,
         port=port,
         log_level=logging.getLevelName(log_level).lower(),
+        log_config=None,
     )
 
 
