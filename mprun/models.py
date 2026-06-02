@@ -457,15 +457,10 @@ class Experiment(BaseModel):
     @property
     def finished_running(self) -> float | None:
         """Timestamp of when the last Run finished. None, if there are still Waiting/Running Runs."""
-        end_times = [
-            run.finished_running
-            for runs in self.runs
-            for run in runs
-            if run.finished_running is not None
-        ]
-        if not end_times:
+        end_times = [run.finished_running for runs in self.runs for run in runs]
+        if any(timestamp is None for timestamp in end_times):
             return None
-        return max(end_times)
+        return max([timestamp for timestamp in end_times if timestamp is not None])
 
     @classmethod
     def new(cls, definition: ExperimentDefinition) -> Experiment:

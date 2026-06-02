@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -22,6 +23,14 @@ from mprun.client.client import (
 from mprun.models import Experiment
 
 REFRESH_TIME: float = 30.0
+
+
+def _fmt_ts(ts: float | None) -> str:
+    if ts is None:
+        return "—"
+    return (
+        datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    )
 
 
 class ConfirmDownloadDialog(ModalScreen[bool]):
@@ -47,7 +56,7 @@ class ConfirmDownloadDialog(ModalScreen[bool]):
         with Vertical(id="confirm-dialog"):
             yield Static(
                 f"Download results for [bold]{self.run_name}[/bold]?\n\n"
-                "[bold][y][/bold] [u]Y[/u]es    [bold][n][/bold] [u]N[/u]o"
+                "[bold][y][/bold][u]Y[/u]es[bold]/[n][/bold][u]N[/u]o"
             )
 
     def action_confirm(self) -> None:
@@ -147,6 +156,8 @@ class DetailView(Screen):
             f"[dim]Iteration:[/dim]  {run['iteration']}\n"
             f"[dim]Active:[/dim]     {run['active_state']}\n"
             f"[dim]Success:[/dim]    {run['success_state']}\n"
+            f"[dim]Started:[/dim]    {_fmt_ts(run.get('started_running'))}\n"
+            f"[dim]Finished:[/dim]   {_fmt_ts(run.get('finished_running'))}\n"
             f"[dim]Worker:[/dim]     {wid if wid is not None else 'none'}\n"
             f"\n[dim]Parameters:[/dim]\n{params_lines}"
         )
@@ -279,29 +290,30 @@ class ExperimentTui(App):
             panel.update("No experiments")
             return
 
-        defn = exp.get("definition", {})
-        runs = exp.get("runs", [])
-        total_runs = sum(len(inner) for inner in runs)
+        experiment = Experiment.model_validate(exp)
+        defn = experiment.definition
+        total_runs = sum(len(inner) for inner in experiment.runs)
 
-        params = defn.get("params", {})
-        params_lines = "\n".join(f"  {k}: {v}" for k, v in params.items())
-
-        timeout = defn.get("timeout")
-        timeout_str = f"{timeout}s" if timeout is not None else "none"
-
-        env_vars = defn.get("environment_variables") or {}
-        env_vars_str = ", ".join(env_vars.keys()) if env_vars else "none"
-
-        setup = defn.get("setup_executable") or "none"
+        params_lines = "\n".join(f"  {k}: {v}" for k, v in defn.params.items())
+        timeout_str = f"{defn.timeout}s" if defn.timeout is not None else "none"
+        env_vars_str = (
+            ", ".join(defn.environment_variables.keys())
+            if defn.environment_variables
+            else "none"
+        )
+        setup = defn.setup_executable or "none"
 
         panel.update(
-            f"[bold]{exp['name']}[/bold]\n\n"
-            f"[dim]ID:[/dim]           {exp['eid']}\n"
-            f"[dim]Active:[/dim]       {exp['active_state']}\n"
-            f"[dim]Success:[/dim]      {exp['success_state']}\n"
+            f"[bold]{experiment.name}[/bold]\n\n"
+            f"[dim]ID:[/dim]           {experiment.eid}\n"
+            f"[dim]Active:[/dim]       {experiment.active_state}\n"
+            f"[dim]Success:[/dim]      {experiment.success_state}\n"
+            f"[dim]Created:[/dim]      {_fmt_ts(experiment.creation_timestamp)}\n"
+            f"[dim]Started:[/dim]      {_fmt_ts(experiment.started_running)}\n"
+            f"[dim]Finished:[/dim]     {_fmt_ts(experiment.finished_running)}\n"
             f"[dim]Runs:[/dim]         {total_runs}\n"
-            f"[dim]Iterations:[/dim]   {defn.get('iterations', 1)}\n"
-            f"[dim]Executable:[/dim]   {defn.get('executable', '?')}\n"
+            f"[dim]Iterations:[/dim]   {defn.iterations}\n"
+            f"[dim]Executable:[/dim]   {defn.executable}\n"
             f"[dim]Setup:[/dim]        {setup}\n"
             f"[dim]Timeout:[/dim]      {timeout_str}\n"
             f"[dim]Env vars:[/dim]     {env_vars_str}\n"
