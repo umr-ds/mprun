@@ -7,6 +7,7 @@ from itertools import product
 from os import X_OK, access
 from pathlib import Path
 from time import time
+from typing import Any
 from uuid import uuid4
 from zipfile import ZIP_LZMA, ZipFile
 
@@ -138,11 +139,6 @@ class ExperimentDefinition(BaseModel):
         """
         with file_path.open("r") as f:
             data = load(f).unwrap()
-
-            if isinstance(data.get("timeout"), str):
-                data["timeout"] = pytimeparse2.parse(
-                    data["timeout"], raise_exception=True
-                )
 
             if validation_mode == ValidationMode.DATA_ONLY:
                 return cls.model_validate(data, strict=True)
@@ -279,6 +275,41 @@ class ExperimentDefinition(BaseModel):
             msg = "Iterations must be >= 1"
             raise ValueError(msg)
         return iterations
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def validate_timeout(cls, timeout: Any) -> int | None:  # noqa: ANN401
+        """Validate timeout.
+
+        User can put either ``None`` or an ``int`` or a ``str`` that describes a length (see pytimeparse2 documentation for valid strings).
+
+        Args:
+            timeout (Any): Timeout. Since this is a "before" validator, it might be anything at this point.
+
+        Returns:
+            int | None: None if the user specified None, otherwise the tiomeut as an integer.
+
+        Raises:
+            ValueError: If something is wrong with the value.
+        """
+        if timeout is None:
+            return None
+        if isinstance(timeout, int) and not isinstance(timeout, bool):
+            if timeout <= 0:
+                msg = "Timeout must be at least 1 second"
+                raise ValueError(msg)
+            return timeout
+        if isinstance(timeout, str):
+            parsed = pytimeparse2.parse(timeout, raise_exception=True)
+            if isinstance(parsed, int):
+                if parsed <= 0:
+                    msg = "Timeout must be at least 1 second"
+                    raise ValueError(msg)
+                return parsed
+            msg = f"Could not parse string to integer duration, got: {type(parsed)}"
+            raise ValueError(msg)
+        msg = f"timeout must be one of (None | int | str), got {type(timeout)}"
+        raise ValueError(msg)
 
     def create_archive(self, experiment_toml: Path) -> Path:
         """Create archive for Experiment.
