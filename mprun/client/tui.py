@@ -268,18 +268,21 @@ class ExperimentTui(App):
                 self._show_error(f"Connection error: {err}")
                 return
 
-        self._experiments = experiments
+        self._experiments = sorted(
+            experiments, key=lambda e: e.get("creation_timestamp") or 0, reverse=True
+        )
         lv = self.query_one("#experiment-list", ListView)
         prev_index = lv.index if lv.index is not None else 0
 
         await lv.clear()
-        for exp in experiments:
-            await lv.append(ListItem(Label(exp["name"])))
+        for exp in self._experiments:
+            ts = _fmt_ts(exp.get("creation_timestamp"))
+            await lv.append(ListItem(Label(f"{exp['name']}  [dim]{ts}[/dim]")))
 
-        if experiments:
-            new_index = min(prev_index, len(experiments) - 1)
+        if self._experiments:
+            new_index = min(prev_index, len(self._experiments) - 1)
             lv.index = new_index
-            self._update_detail(experiments[new_index])
+            self._update_detail(self._experiments[new_index])
         else:
             self._update_detail(None)
 
