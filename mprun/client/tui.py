@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import ClassVar
 
 import httpx
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
+from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client.client import (
@@ -227,6 +228,7 @@ class ExperimentTui(App):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh now"),
         ("d", "download", "Download results"),
+        ("f", "search", "Search"),
     ]
 
     CSS_PATH = "tui.tcss"
@@ -240,12 +242,16 @@ class ExperimentTui(App):
         super().__init__()
         self.base_url = base_url
         self._experiments: list[dict] = []
+        self._visible_experiments: list[dict] = []
+        self._search_mode: bool = False
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header(show_clock=True)
         with Horizontal(id="content"):
-            yield ListView(id="experiment-list")
+            with Vertical(id="list-container"):
+                yield Input(placeholder="Search…", id="search-bar", disabled=True)
+                yield ListView(id="experiment-list")
             yield Static("No experiment selected", id="detail-panel")
         yield Footer()
 
@@ -271,20 +277,74 @@ class ExperimentTui(App):
         self._experiments = sorted(
             experiments, key=lambda e: e.get("creation_timestamp") or 0, reverse=True
         )
+        await self._apply_filter()
+
+    async def _apply_filter(self) -> None:
+        """Rebuild the experiment list applying the current search query."""
+        query = self.query_one("#search-bar", Input).value.lower()
+        self._visible_experiments = (
+            [e for e in self._experiments if query in e.get("name", "").lower()]
+            if query
+            else list(self._experiments)
+        )
         lv = self.query_one("#experiment-list", ListView)
         prev_index = lv.index if lv.index is not None else 0
-
         await lv.clear()
-        for exp in self._experiments:
+        for exp in self._visible_experiments:
             ts = _fmt_ts(exp.get("creation_timestamp"))
             await lv.append(ListItem(Label(f"{exp['name']}  [dim]{ts}[/dim]")))
-
-        if self._experiments:
-            new_index = min(prev_index, len(self._experiments) - 1)
+        if self._visible_experiments:
+            new_index = min(prev_index, len(self._visible_experiments) - 1)
             lv.index = new_index
-            self._update_detail(self._experiments[new_index])
+            self._update_detail(self._visible_experiments[new_index])
         else:
             self._update_detail(None)
+
+    def action_search(self) -> None:
+        """Enter search mode."""
+        self._search_mode = True
+        search_bar = self.query_one("#search-bar", Input)
+        search_bar.disabled = False
+        search_bar.display = True
+        search_bar.focus()
+
+    def _exit_search(self) -> None:
+        """Exit search mode and restore full list."""
+        self._search_mode = False
+        search_bar = self.query_one("#search-bar", Input)
+        search_bar.value = ""
+        search_bar.disabled = True
+        search_bar.display = False
+        self.query_one("#experiment-list", ListView).focus()
+        self.call_later(self._apply_filter)
+
+    async def on_input_changed(self, _event: Input.Changed) -> None:
+        """Filter list as user types."""
+        await self._apply_filter()
+
+    async def on_input_submitted(self, _event: Input.Submitted) -> None:
+        """Open selected experiment on Enter."""
+        lv = self.query_one("#experiment-list", ListView)
+        idx = lv.index
+        if idx is not None and idx < len(self._visible_experiments):
+            exp = self._visible_experiments[idx]
+            self._exit_search()
+            self.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
+
+    def on_key(self, event: events.Key) -> None:
+        """Forward arrow keys to list and Escape to exit search while in search mode."""
+        if not self._search_mode:
+            return
+        lv = self.query_one("#experiment-list", ListView)
+        if event.key == "escape":
+            self._exit_search()
+            event.stop()
+        elif event.key == "up":
+            lv.action_cursor_up()
+            event.stop()
+        elif event.key == "down":
+            lv.action_cursor_down()
+            event.stop()
 
     def _update_detail(self, exp: dict | None) -> None:
         """Render experiment metadata into the detail panel."""
@@ -332,24 +392,24 @@ class ExperimentTui(App):
         """Update detail panel when cursor moves."""
         lv = self.query_one("#experiment-list", ListView)
         idx = lv.index
-        if idx is not None and idx < len(self._experiments):
-            self._update_detail(self._experiments[idx])
+        if idx is not None and idx < len(self._visible_experiments):
+            self._update_detail(self._visible_experiments[idx])
 
     def on_list_view_selected(self, _event: ListView.Selected) -> None:
         """Open Detail-View for the selected experiment."""
         lv = self.query_one("#experiment-list", ListView)
         idx = lv.index
-        if idx is not None and idx < len(self._experiments):
-            exp = self._experiments[idx]
+        if idx is not None and idx < len(self._visible_experiments):
+            exp = self._visible_experiments[idx]
             self.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
 
     def action_download(self) -> None:
         """Prompt for confirmation then download all results for the selected experiment."""
         lv = self.query_one("#experiment-list", ListView)
         idx = lv.index
-        if idx is None or idx >= len(self._experiments):
+        if idx is None or idx >= len(self._visible_experiments):
             return
-        exp = self._experiments[idx]
+        exp = self._visible_experiments[idx]
 
         def on_confirm(result: object) -> None:
             if result:

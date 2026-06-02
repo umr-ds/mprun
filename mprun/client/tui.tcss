@@ -2,8 +2,16 @@
     height: 1fr;
 }
 
-#experiment-list, #run-list {
+#list-container {
     width: 30%;
+}
+
+#search-bar {
+    display: none;
+}
+
+#experiment-list, #run-list {
+    width: 1fr;
     border: solid $accent;
 }
 
