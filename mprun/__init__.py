@@ -1,14 +1,14 @@
 """Multi-Parameter Experiment Runner."""
 
 PACKAGE_NAME = "mprun"
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __all__ = [
     "SERVER_ADDRESS_ENV",
     "client",
     "custom_types",
     "errors",
     "experiment_manager",
-    "logging",
+    "log",
     "models",
     "server",
     "worker",

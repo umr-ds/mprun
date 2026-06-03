@@ -12,7 +12,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/astral-sh/uv:0.11.16-python3.14-trixie-slim
+      image: ghcr.io/astral-sh/uv:0.11.18-python3.14-trixie-slim
     steps:
       - uses: actions/checkout@v4
       - name: Cache uv
@@ -26,7 +26,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/astral-sh/uv:0.11.16-python3.14-trixie-slim
+      image: ghcr.io/astral-sh/uv:0.11.18-python3.14-trixie-slim
     steps:
       - uses: actions/checkout@v4
       - name: Cache uv
@@ -40,7 +40,7 @@ jobs:
   ty:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/astral-sh/uv:0.11.16-python3.14-trixie-slim
+      image: ghcr.io/astral-sh/uv:0.11.18-python3.14-trixie-slim
     steps:
       - uses: actions/checkout@v4
       - name: Cache uv
@@ -54,7 +54,7 @@ jobs:
   language-version:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/astral-sh/uv:0.11.16-python3.14-trixie-slim
+      image: ghcr.io/astral-sh/uv:0.11.18-python3.14-trixie-slim
     steps:
       - uses: actions/checkout@v4
       - name: Cache uv
@@ -68,7 +68,7 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/astral-sh/uv:0.11.16-python3.14-trixie-slim
+      image: ghcr.io/astral-sh/uv:0.11.18-python3.14-trixie-slim
     steps:
       - uses: actions/checkout@v4
       - name: Cache uv
