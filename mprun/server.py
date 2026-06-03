@@ -42,6 +42,8 @@ from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
 DATA_PATH_ENV = "MPRUN_DATA_PATH"
+HOST_ENV = "MPRUN_SERVER_HOST"
+PORT_ENV = "MPRUN_SERVER_PORT"
 
 
 @asynccontextmanager
@@ -302,11 +304,31 @@ async def check_in_worker(
 
 @cli.command()
 def main(
-    host: str = Option("127.0.0.1", help="Bind host"),
-    port: int = Option(8000, help="Bind port"),
+    host: str = Option(
+        "127.0.0.1",
+        "--host",
+        envvar=HOST_ENV,
+        help=f"Bind host. Falls back to ${HOST_ENV}.",
+    ),
+    port: int = Option(
+        8000,
+        "--port",
+        envvar=PORT_ENV,
+        help=f"Bind port. Falls back to ${PORT_ENV}.",
+    ),
     verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
+    data_path: Path | None = Option(
+        None,
+        "--data-path",
+        "-d",
+        envvar=DATA_PATH_ENV,
+        help=f"Directory for database and blob storage. Falls back to ${DATA_PATH_ENV}, then platform default.",
+    ),
 ) -> None:
     """Start the server."""
+    if data_path is not None:
+        os.environ[DATA_PATH_ENV] = str(data_path)
+
     log_level = logging.DEBUG if verbose else logging.INFO
     configure_logging(log_level)
     uvicorn.run(

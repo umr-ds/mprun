@@ -9,7 +9,7 @@ import asyncio.subprocess
 import logging
 from asyncio import Task, create_task, sleep, to_thread, wait_for
 from http import HTTPStatus
-from os import environ, getenv
+from os import environ
 from pathlib import Path
 from shutil import copy, copytree, rmtree, unpack_archive
 from tempfile import TemporaryDirectory
@@ -495,30 +495,51 @@ async def _run(server_address: str, name: str, home_directory: Path) -> None:
 @cli.command()
 def main(
     verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
+    server_address: str | None = Option(
+        None,
+        "--server-address",
+        "-s",
+        envvar=SERVER_ADDRESS_ENV,
+        help=f"Server address. Falls back to ${SERVER_ADDRESS_ENV}.",
+    ),
+    name: str | None = Option(
+        None,
+        "--name",
+        "-n",
+        envvar=WORKER_NAME_ENV,
+        help=f"Worker name. Falls back to ${WORKER_NAME_ENV}.",
+    ),
+    home_directory: Path | None = Option(
+        None,
+        "--home-directory",
+        "-d",
+        envvar=WORKER_HOME_DIR,
+        help=f"Worker home directory. Falls back to ${WORKER_HOME_DIR}.",
+    ),
 ) -> None:
     """Start the worker daemon.
 
-    Reads ``MPRUN_SERVER_ADDRESS``, ``MPRUN_WORKER_NAME``, and ``MPRUN_WORKER_DIRECTORY``
-    from the environment, registers with the server, and enters the main loop.
+    CLI arguments take precedence over environment variables (``MPRUN_SERVER_ADDRESS``,
+    ``MPRUN_WORKER_NAME``, ``MPRUN_WORKER_DIRECTORY``).
     """
     log_level = logging.DEBUG if verbose else logging.INFO
     configure_logging(log_level)
 
-    server_address = getenv(SERVER_ADDRESS_ENV)
     if server_address is None:
-        logger.critical("Environment variable %s not set!", SERVER_ADDRESS_ENV)
+        logger.critical(
+            "Server address not set. Use --server-address or $%s.", SERVER_ADDRESS_ENV
+        )
         raise Exit(1)
 
-    name = getenv(WORKER_NAME_ENV)
     if name is None:
-        logger.critical("Environment variable %s not set!", WORKER_NAME_ENV)
+        logger.critical("Worker name not set. Use --name or $%s.", WORKER_NAME_ENV)
         raise Exit(1)
 
-    home_directory = getenv(WORKER_HOME_DIR)
     if home_directory is None:
-        logger.critical("Environment variable %s not set!", WORKER_HOME_DIR)
+        logger.critical(
+            "Home directory not set. Use --home-directory or $%s.", WORKER_HOME_DIR
+        )
         raise Exit(1)
-    home_directory = Path(home_directory)
 
     asyncio.run(
         _run(server_address=server_address, name=name, home_directory=home_directory)

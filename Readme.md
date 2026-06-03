@@ -20,28 +20,30 @@ pip install --group server .   # or --group worker / --group client
 ### Server
 
 ```bash
-mprun_server [--host HOST] [--port PORT] [-v] # (package entrypoint)
+mprun_server [--host HOST] [--port PORT] [-d DIR] [-v]
 ```
 
-Default: `127.0.0.1:8000`. Configured via environment variables:
+CLI arguments take precedence over environment variables. `--host` and `--port` have no env var equivalent.
 
-| Variable          | Effect                                            | Default     |
-|:------------------|:--------------------------------------------------|:------------|
-| `MPRUN_DATA_PATH` | Directory for database / blob storage             | `~/.mprun`  |
+| CLI argument         | Environment variable | Default                 | Effect                           |
+|:---------------------|:---------------------|:------------------------|:---------------------------------|
+| `--host`             | `MPRUN_SERVER_HOST`  | `127.0.0.1`             | Bind host                        |
+| `--port`             | `MPRUN_SERVER_PORT`  | `8000`                  | Bind port                        |
+| `-d` / `--data-path` | `MPRUN_DATA_PATH`    | platform user data dir  | Directory for database and blobs |
 
 ### Worker
 
 ```bash
-mprun_worker [-v] # (package entrypoint)
+mprun_worker [-s ADDRESS] [-n NAME] [-d DIR] [-v]
 ```
 
-Configured via environment variables (all required):
+CLI arguments take precedence over environment variables. All three are required (via either source):
 
-| Variable                 | Effect                              |
-|:-------------------------|:------------------------------------|
-| `MPRUN_SERVER_ADDRESS`   | Address of the server               |
-| `MPRUN_WORKER_NAME`      | Human-readable name for this worker |
-| `MPRUN_WORKER_DIRECTORY` | Working directory for run execution |
+| CLI argument              | Environment variable     | Effect                              |
+|:--------------------------|:-------------------------|:------------------------------------|
+| `-s` / `--server-address` | `MPRUN_SERVER_ADDRESS`   | Address of the server               |
+| `-n` / `--name`           | `MPRUN_WORKER_NAME`      | Human-readable name for this worker |
+| `-d` / `--home-directory` | `MPRUN_WORKER_DIRECTORY` | Working directory for run execution |
 
 ### Client
 
