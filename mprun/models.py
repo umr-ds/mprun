@@ -22,6 +22,27 @@ EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
 EXPERIMENT_ARCHIVE_NAME = "experiment_archive.zip"
 
 
+def add_path_to_archive(zf: ZipFile, name_local: Path, name_archive: Path) -> None:
+    """Add a file or directory to an open ZIP archive.
+
+    If ``name_local`` is a file, it is added directly. If it is a directory, all files within it
+    are added recursively, preserving relative paths under ``name_archive``. Paths that do not
+    exist are silently skipped.
+
+    Args:
+        zf (ZipFile): Open, writable ZIP archive.
+        name_local (Path): Filesystem path of the file or directory to add.
+        name_archive (Path): Entry name (or prefix for directories) inside the archive.
+    """
+    if name_local.is_file():
+        zf.write(name_local, name_archive)
+    elif name_local.is_dir():
+        for root, _, files in name_local.walk():
+            for file in files:
+                file_path = root / file
+                zf.write(file_path, name_archive / file_path.relative_to(name_local))
+
+
 def _expand_parameters(
     params: dict[str, list[TOMLScalar]],
 ) -> list[dict[str, TOMLScalar]]:
@@ -233,7 +254,7 @@ class ExperimentDefinition(BaseModel):
                 mapping, unchanged.
 
         Raises:
-            ValueError: If the context path is not a directory or any source file does not exist.
+            ValueError: If the context path is not a directory or any source path does not exist.
         """
         if files is None:  # if no files were given, then there's nothing to do
             return None
@@ -249,8 +270,8 @@ class ExperimentDefinition(BaseModel):
 
         for env_file in files:
             file_path = dir_path / env_file
-            if not file_path.is_file(follow_symlinks=False):
-                msg = f"No such file: {file_path}"
+            if not file_path.exists():
+                msg = f"No such file or directory: {file_path}"
                 raise ValueError(msg)
 
         return files
@@ -351,9 +372,9 @@ class ExperimentDefinition(BaseModel):
                 )  # add setup executable (if one is specified)
             if self.environment_files:
                 for environment_file in self.environment_files:
-                    zf.write(
-                        directory / environment_file, environment_file
-                    )  # add environment files (if any are specified)
+                    add_path_to_archive(
+                        zf, directory / environment_file, Path(environment_file)
+                    )  # add environment files/directories (if any are specified)
         return archive_path
 
     def validate_archive(self, archive_path: Path) -> None:
@@ -386,8 +407,11 @@ class ExperimentDefinition(BaseModel):
                 raise ArchiveValidationError(reason=msg)
             if self.environment_files:
                 for env_file in self.environment_files:
-                    if env_file not in contents:
-                        msg = f"Archive does not contain environment file {env_file}"
+                    prefix = env_file + "/"
+                    if env_file not in contents and not any(
+                        c.startswith(prefix) for c in contents
+                    ):
+                        msg = f"Archive does not contain environment file or directory {env_file}"
                         raise ArchiveValidationError(reason=msg)
 
 

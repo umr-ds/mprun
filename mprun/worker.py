@@ -29,6 +29,7 @@ from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     Run,
     WorkerData,
+    add_path_to_archive,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ class Worker:
                 # TODO: inform server of error
             except OSError:
                 logger.exception("Encountered OSError")
-            except Exception: # noqa: BLE001 - Worker process should survive unexpected exceptions
+            except Exception:  # Worker process should survive unexpected exceptions
                 logger.exception("Encountered unexpected exception")
             finally:
                 if self.working is not None:
@@ -425,14 +426,7 @@ class Worker:
             name_archive (Path): Path to use as the entry name inside the archive.
         """
         logger.debug("Adding result %s as %s", name_local, name_archive)
-        if await to_thread(name_local.is_file):
-            await to_thread(zf.write, name_local, name_archive)
-        elif await to_thread(name_local.is_dir):
-            for root, _, files in await to_thread(name_local.walk):
-                for file in files:
-                    file_path = root / file
-                    arcname = name_archive / file_path.relative_to(name_local)
-                    await to_thread(zf.write, file_path, arcname)
+        await to_thread(add_path_to_archive, zf, name_local, name_archive)
 
     async def upload_results(self) -> None:
         """Upload the results archive for the current run to the server.
