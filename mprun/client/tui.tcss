@@ -29,6 +29,19 @@
     content-align: center middle;
 }
 
+#explorer {
+    height: 1fr;
+}
+
+#pane-parent, #pane-current, #pane-preview {
+    width: 1fr;
+    border: solid $accent;
+}
+
+#pane-parent, #pane-preview {
+    padding: 1 2;
+}
+
 ConfirmDownloadDialog {
     align: center middle;
 }

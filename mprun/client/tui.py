@@ -11,6 +11,8 @@ from typing import ClassVar
 import httpx
 from rapidfuzz import fuzz
 from rapidfuzz import process as fuzz_process
+from rich.markup import escape as markup_escape
+from rich.syntax import Syntax
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -463,12 +465,14 @@ class OverViewScreen(Screen):
 
 
 class CreateScreen(Screen):
-    """Create-Mode: placeholder for experiment creation."""
+    """Create-Mode: three-pane file explorer (yazi-style)."""
 
     TITLE = "Create-Mode"
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("v", "view_mode", "View-Mode"),
+        ("left", "go_up", "Parent"),
+        ("right", "go_into", "Enter"),
     ]
 
     def __init__(self, base_url: str) -> None:
@@ -479,12 +483,136 @@ class CreateScreen(Screen):
         """
         super().__init__()
         self.base_url = base_url
+        self._current_dir: Path = Path.cwd()
+        self._entries: list[Path] = []
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header(show_clock=True)
-        yield Static("Create-Mode — not yet implemented", id="create-placeholder")
+        with Horizontal(id="explorer"):
+            yield Static("", id="pane-parent")
+            yield ListView(id="pane-current")
+            yield Static("", id="pane-preview")
         yield Footer()
+
+    async def on_mount(self) -> None:
+        """Load initial directory."""
+        await self._load_dir(self._current_dir)
+
+    @staticmethod
+    def _list_dir(path: Path) -> list[Path]:
+        try:
+            return sorted(
+                path.iterdir(),
+                key=lambda p: (not p.is_dir(), p.name.lower()),
+            )
+        except OSError:
+            return []
+
+    def _dir_color(self) -> str:
+        return self.app.get_css_variables().get("accent", "blue")
+
+    @staticmethod
+    def _entry_label(path: Path, dir_color: str) -> str:
+        name = markup_escape(path.name)
+        if path.is_dir():
+            return f"[bold {dir_color}]{name}/[/bold {dir_color}]"
+        if path.suffix.lower() != ".toml":
+            return f"[dim]{name}[/dim]"
+        return name
+
+    async def _load_dir(self, path: Path, cursor_on: Path | None = None) -> None:
+        self._current_dir = path
+        self._entries = self._list_dir(path)
+        dir_color = self._dir_color()
+
+        lv = self.query_one("#pane-current", ListView)
+        await lv.clear()
+        for entry in self._entries:
+            await lv.append(ListItem(Label(self._entry_label(entry, dir_color))))
+
+        if cursor_on is not None and cursor_on in self._entries:
+            lv.index = self._entries.index(cursor_on)
+        elif self._entries:
+            lv.index = 0
+
+        lv.focus()
+        self._update_parent_pane()
+        self._update_preview_pane()
+
+    def _update_parent_pane(self) -> None:
+        parent = self._current_dir.parent
+        pane = self.query_one("#pane-parent", Static)
+        if parent == self._current_dir:
+            pane.update("")
+            return
+        dir_color = self._dir_color()
+        lines = []
+        for entry in self._list_dir(parent):
+            label = self._entry_label(entry, dir_color)
+            if entry == self._current_dir:
+                lines.append(f"[reverse]{label}[/reverse]")
+            else:
+                lines.append(label)
+        pane.update("\n".join(lines))
+
+    def _update_preview_pane(self) -> None:
+        lv = self.query_one("#pane-current", ListView)
+        pane = self.query_one("#pane-preview", Static)
+        idx = lv.index
+        if idx is None or idx >= len(self._entries):
+            pane.update("")
+            return
+        entry = self._entries[idx]
+        if entry.is_dir():
+            dir_color = self._dir_color()
+            sub = self._list_dir(entry)
+            pane.update(
+                "\n".join(self._entry_label(e, dir_color) for e in sub)
+                if sub
+                else "[dim]Empty directory[/dim]"
+            )
+        else:
+            pane.update(
+                self._read_text_preview(entry, dark=self.app.current_theme.dark)
+            )
+
+    @staticmethod
+    def _read_text_preview(path: Path, *, dark: bool) -> str | Syntax:
+        try:
+            with path.open(encoding="utf-8", errors="strict") as f:
+                text = f.read(4096)
+            if path.suffix.lower() == ".toml":
+                return Syntax(
+                    text,
+                    "toml",
+                    theme="ansi_dark" if dark else "ansi_light",
+                    background_color="default",
+                )
+            return markup_escape(text)
+        except (UnicodeDecodeError, OSError):
+            return "[dim]No Preview Available[/dim]"
+
+    def on_list_view_highlighted(self, _event: ListView.Highlighted) -> None:
+        """Update preview when cursor moves."""
+        self._update_preview_pane()
+
+    def action_go_up(self) -> None:
+        """Navigate to parent directory."""
+        parent = self._current_dir.parent
+        if parent != self._current_dir:
+            old = self._current_dir
+            self.call_later(lambda: self._load_dir(parent, old))
+
+    def action_go_into(self) -> None:
+        """Enter selected directory (no-op on files)."""
+        lv = self.query_one("#pane-current", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._entries):
+            return
+        entry = self._entries[idx]
+        if entry.is_dir():
+            self.call_later(lambda: self._load_dir(entry))
 
     def action_view_mode(self) -> None:
         """Switch back to View-Mode."""
