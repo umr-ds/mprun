@@ -1,6 +1,7 @@
 """Custom exception types."""
 
 from dataclasses import dataclass
+from typing import override
 
 from mprun.custom_types import RunId
 
@@ -15,6 +16,7 @@ class ArchiveValidationError(ValueError):
 
     reason: str
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Experiment archive invalid! Reason: {self.reason}"
@@ -30,6 +32,7 @@ class InvalidParametersError(ValueError):
 
     reason: str
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Experiment parameters invalid! Reason: {self.reason}"
@@ -42,6 +45,7 @@ class NoRunError(AttributeError):
     methods that require an active run.
     """
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return "There is no run!"
@@ -57,6 +61,7 @@ class NoSuchExperimentError(LookupError):
 
     eid: int
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Experiment with ID {self.eid} does not exist!"
@@ -72,6 +77,7 @@ class NoSuchRunError(LookupError):
 
     run_id: RunId
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Run {self.run_id} does not exist!"
@@ -87,6 +93,7 @@ class NoSuchWorkerError(LookupError):
 
     wid: int
 
+    @override
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Worker with ID {self.wid} does not exist!"

@@ -7,7 +7,7 @@ from itertools import product
 from os import X_OK, access
 from pathlib import Path
 from time import time
-from typing import Any
+from typing import Any, override
 from uuid import uuid4
 from zipfile import ZIP_LZMA, ZipFile
 
@@ -442,10 +442,12 @@ class Experiment(BaseModel):
     creation_timestamp: float
     runs: list[list[Run]]
 
+    @override
     def __str__(self) -> str:
         """Return a string representation of the Experiment."""
         return f"Experiment({self.name})"
 
+    @override
     def __hash__(self) -> int:
         """Compute the hash of the Experiment."""
         return hash(self.eid)
@@ -595,10 +597,12 @@ class Run(BaseModel):
     finished_running: float | None = None
     params: dict[str, TOMLScalar]
 
+    @override
     def __str__(self) -> str:
         """Return a string representation of the Run."""
         return f"Run({self.name})"
 
+    @override
     def __hash__(self) -> int:
         """Compute the hash of the Run."""
         return hash(self.run_id)

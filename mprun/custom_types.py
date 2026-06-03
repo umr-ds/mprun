@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import NamedTuple
+from typing import NamedTuple, override
 
 type TOMLScalar = (
     str | int | float | bool
@@ -56,6 +56,7 @@ class RunId(NamedTuple):
     index: int
     iteration: int
 
+    @override
     def __str__(self) -> str:
         """Return the RunId as ``{eid}-{index}``."""
         return f"{self.eid}-{self.index}-{self.iteration}"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import ClassVar, override
 
 _FMT = "%(asctime)s %(levelname)s:%(name)-24s: \x00%(message)s"
 
@@ -21,6 +21,7 @@ class ColorFormatter(logging.Formatter):
     _RESET = "\033[0m"
     _WHITE = "\033[97m"
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         """Format ``record`` with ANSI color codes."""
         color = self._COLORS.get(record.levelno, "")

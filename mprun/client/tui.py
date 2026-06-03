@@ -7,7 +7,7 @@ import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, override
 
 import httpx
 from rapidfuzz import fuzz
@@ -59,6 +59,7 @@ class ConfirmDeleteDialogue(ModalScreen[bool]):
         super().__init__()
         self.exp_name = exp_name
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         with Vertical(id="confirm-dialog"):
@@ -96,6 +97,7 @@ class ConfirmDownloadDialogue(ModalScreen[bool]):
         super().__init__()
         self.run_name = run_name
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         with Vertical(id="confirm-dialog"):
@@ -138,6 +140,7 @@ class DetailView(Screen):
         self.eid = eid
         self._runs: list[dict] = []
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header(show_clock=True)
@@ -288,6 +291,7 @@ class OverViewScreen(Screen):
         self._visible_experiments: list[dict] = []
         self._search_mode: bool = False
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header(show_clock=True)
@@ -570,6 +574,7 @@ class ExperimentPreviewModal(ModalScreen[None]):
         self._file_path = file_path
         self._base_url = base_url
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         with Vertical(id="experiment-preview"):
@@ -665,6 +670,7 @@ class CreateScreen(Screen):
         self._current_dir: Path = Path.cwd()
         self._entries: list[Path] = []
 
+    @override
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header(show_clock=True)
