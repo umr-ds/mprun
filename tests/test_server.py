@@ -6,6 +6,7 @@ from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -231,6 +232,88 @@ class TestExperiments:
             with TestClient(server) as client:
                 response = client.get("/experiments/99999")
                 assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_experiment(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """DELETE /experiments/{eid} returns 204 and the experiment is no longer retrievable."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment()
+            archive_path = _build_archive(definition, directory)
+
+            with TestClient(server) as client:
+                experiment = _post_experiment(client, definition, archive_path)
+
+                response = client.delete(f"/experiments/{experiment.eid}")
+                assert response.status_code == HTTPStatus.NO_CONTENT
+
+                response = client.get(f"/experiments/{experiment.eid}")
+                assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_experiment_missing(self, tmp_path: Path) -> None:
+        """DELETE /experiments/{eid} returns 404 for an unknown eid."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                response = client.delete("/experiments/99999")
+                assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_experiment_removes_from_list(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """DELETE /experiments/{eid} removes the experiment from GET /experiments; siblings unaffected."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                def_a, dir_a = make_experiment(name="alpha")
+                def_b, dir_b = make_experiment(name="beta")
+                exp_a = _post_experiment(client, def_a, _build_archive(def_a, dir_a))
+                exp_b = _post_experiment(client, def_b, _build_archive(def_b, dir_b))
+
+                response = client.delete(f"/experiments/{exp_a.eid}")
+                assert response.status_code == HTTPStatus.NO_CONTENT
+
+                response = client.get("/experiments")
+                response.raise_for_status()
+                listed = [Experiment.model_validate(e) for e in response.json()]
+                assert len(listed) == 1
+                assert listed[0].eid == exp_b.eid
+
+    def test_delete_experiment_ioerror_returns_500(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """DELETE /experiments/{eid} returns 500 when the manager raises OSError."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment()
+            archive_path = _build_archive(definition, directory)
+
+            with TestClient(server) as client:
+                experiment = _post_experiment(client, definition, archive_path)
+
+                with patch.object(
+                    server.state.experiment_manager,
+                    "delete",
+                    new_callable=AsyncMock,
+                    side_effect=OSError("disk full"),
+                ):
+                    response = client.delete(f"/experiments/{experiment.eid}")
+                    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 class TestRuns:

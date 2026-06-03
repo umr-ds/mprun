@@ -183,3 +183,20 @@ def submit_experiment(
             },
         ).raise_for_status()
     return Experiment.model_validate(resp.json()), resp.text
+
+
+def delete_experiment(
+    http_client: Client,
+    eid: int,
+) -> None:
+    """Delete an experiment by ID.
+
+    Args:
+        http_client (Client): HTTP client to use for the request.
+        eid (int): ID of the experiment to delete.
+
+    Raises:
+        HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found,
+            500 if the server fails to remove the experiment data from disk).
+    """
+    http_client.delete(f"/experiments/{eid}").raise_for_status()

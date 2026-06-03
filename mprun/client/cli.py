@@ -9,10 +9,11 @@ from httpx import HTTPStatusError, RequestError, codes
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
-from typer import Argument, Context, Exit, Option, Typer, echo
+from typer import Argument, Context, Exit, Option, Typer, confirm, echo
 
 from mprun.client.client import (
     _client_factory,
+    delete_experiment,
     download_run_results,
     get_experiment_results_parallel,
     submit_experiment,
@@ -188,6 +189,37 @@ def create_experiment(
         echo(resp_text)
     else:
         _print_experiment(experiment)
+
+
+@client.command("delete", help="Delete an experiment and all its associated data.")
+def delete_experiment_cmd(
+    eid: int = Argument(help="ID of the experiment to delete."),
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+    yes: bool = Option(False, "-y", "--yes", help="Skip confirmation prompt."),
+) -> None:
+    """Delete an experiment and all its associated data."""
+    if not yes:
+        confirm(f"Delete experiment {eid}? This cannot be undone.", abort=True)
+
+    try:
+        with _client_factory(base_url) as http:
+            delete_experiment(http_client=http, eid=eid)
+    except HTTPStatusError as err:
+        if err.response.status_code == codes.NOT_FOUND:
+            echo(f"No experiment with ID {eid}", err=True)
+        elif err.response.status_code == codes.INTERNAL_SERVER_ERROR:
+            try:
+                detail = err.response.json().get("detail", str(err))
+            except Exception:  # noqa: BLE001
+                detail = str(err)
+            echo(f"Server error deleting experiment {eid}: {detail}", err=True)
+        else:
+            echo(f"HTTP error {err.response.status_code}: {err}", err=True)
+        raise Exit(1) from err
+
+    echo(f"Deleted experiment {eid}")
 
 
 @client.command("results", help="Download results archive for a specific run.")

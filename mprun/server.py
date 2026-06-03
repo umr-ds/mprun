@@ -135,11 +135,34 @@ async def get_experiment(
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> Experiment:
     """Return a single experiment by ID."""
-    logger.debug("Received experiment get request")
+    logger.debug("Received get request for experiment %d", eid)
     try:
         return await em.get_experiment(eid)
     except NoSuchExperimentError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@server.delete("/experiments/{eid}")
+async def delete_experiment(
+    eid: int,
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> Response:
+    """Delete an experiment and all its associated data.
+
+    Returns ``204 No Content`` on success. Returns ``404`` if no experiment with that ID
+    exists. Returns ``500`` if deleting the experiment data directory fails.
+    """
+    logger.debug("Received delete request for experiment %d", eid)
+    try:
+        await em.delete(eid=eid)
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+    except NoSuchExperimentError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    except OSError as err:
+        logger.exception("I/O error deleting experiment %d", eid)
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(err)
+        ) from err
 
 
 @server.get("/runs/dispatch", response_model=None)

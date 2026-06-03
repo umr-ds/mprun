@@ -23,6 +23,7 @@ from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, St
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client.client import (
     DEFAULT_URL,
+    delete_experiment,
     download_run_results,
     get_experiment_results_parallel,
     submit_experiment,
@@ -38,6 +39,43 @@ def _fmt_ts(ts: float | None) -> str:
     return (
         datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     )
+
+
+class ConfirmDeleteDialogue(ModalScreen[bool]):
+    """Confirmation dialogue for experiment deletion."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("y", "confirm", "Yes"),
+        ("n", "cancel", "No"),
+        ("escape", "cancel", "No"),
+    ]
+
+    def __init__(self, exp_name: str) -> None:
+        """Initialise dialogue.
+
+        Args:
+            exp_name: Display name of the experiment to delete.
+        """
+        super().__init__()
+        self.exp_name = exp_name
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        with Vertical(id="confirm-dialog"):
+            yield Static(
+                f"Delete [bold]{self.exp_name}[/bold]? This cannot be undone.\n\n"
+                "[bold][y][/bold][u]Y[/u]es[bold]/[n][/bold][u]N[/u]o"
+            )
+
+    def action_confirm(self) -> None:
+        """Confirm deletion."""
+        confirmed: bool = True
+        self.dismiss(confirmed)
+
+    def action_cancel(self) -> None:
+        """Cancel deletion."""
+        confirmed: bool = False
+        self.dismiss(confirmed)
 
 
 class ConfirmDownloadDialogue(ModalScreen[bool]):
@@ -231,10 +269,11 @@ class OverViewScreen(Screen):
     TITLE = "Over-View"
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
-        ("r", "refresh", "Refresh now"),
+        ("ctrl+r", "refresh", "Refresh now"),
         ("d", "download", "Download results"),
         ("f", "search", "Find"),
         ("c", "create", "Create-Mode"),
+        ("r", "remove", "Remove"),
     ]
 
     def __init__(self, base_url: str) -> None:
@@ -454,6 +493,44 @@ class OverViewScreen(Screen):
             f"{', '.join(parts)} → {out_dir}",
             severity="warning" if failed else "information",
         )
+
+    def action_remove(self) -> None:
+        """Prompt for confirmation then delete the selected experiment."""
+        if self._search_mode:
+            return
+        lv = self.query_one("#experiment-list", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._visible_experiments):
+            return
+        exp = self._visible_experiments[idx]
+
+        def on_confirm(result: object) -> None:
+            if result:
+                self.call_later(self._do_delete_experiment, exp)
+
+        self.app.push_screen(ConfirmDeleteDialogue(exp["name"]), on_confirm)
+
+    async def _do_delete_experiment(self, exp: dict) -> None:
+        """Delete an experiment via the server and refresh the list."""
+        eid = exp["eid"]
+
+        def _sync_delete() -> None:
+            with httpx.Client(base_url=self.base_url) as client:
+                delete_experiment(client, eid)
+
+        try:
+            await asyncio.to_thread(_sync_delete)
+        except httpx.HTTPStatusError as err:
+            self.notify(
+                f"Delete failed: HTTP {err.response.status_code}", severity="error"
+            )
+            return
+        except httpx.RequestError as err:
+            self.notify(f"Delete failed: {err}", severity="error")
+            return
+
+        self.notify(f"Deleted {exp['name']}")
+        await self._refresh()
 
     def action_create(self) -> None:
         """Switch to Create-Mode."""

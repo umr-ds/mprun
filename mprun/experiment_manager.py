@@ -8,7 +8,7 @@ import os
 from asyncio import Lock, to_thread
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import copy, copyfileobj
+from shutil import copy, copyfileobj, rmtree
 from tempfile import TemporaryDirectory
 from time import time
 from types import TracebackType
@@ -434,6 +434,54 @@ class ExperimentManager:
             self._pending_dispatches.discard(operation.run.run_id)
             operation.run.started_running = None
             logger.debug("Dispatch cancelled: rid=%s", operation.run.run_id)
+
+    async def delete(self, eid: int) -> None:
+        """Delete an experiment and all its associated data.
+
+        Removes the experiment from the database, evicts it from the in-memory cache,
+        cancels any pending dispatches for its runs, and deletes its data directory
+        (archive + results archives) from disk.
+
+        Raises:
+            NoSuchExperimentError: If no experiment with that ID exists.
+            OSError: If deleting the experiment data directory fails (e.g. permission denied).
+        """
+        async with self._state_mutex:
+            experiment = await self._get_experiment_from_db(eid=eid)
+            if experiment is None:
+                raise NoSuchExperimentError(eid=eid)
+
+            if experiment.active:
+                logger.warning(
+                    "Deleting active experiment eid=%d; any in-flight runs will be orphaned",
+                    eid,
+                )
+
+            # cancel any pending dispatches for this experiment's runs
+            run_ids = {run.run_id for runs in experiment.runs for run in runs}
+            orphaned = self._pending_dispatches & run_ids
+            if orphaned:
+                logger.warning(
+                    "Cancelling %d pending dispatch(es) for deleted experiment eid=%d",
+                    len(orphaned),
+                    eid,
+                )
+                self._pending_dispatches -= orphaned
+
+            # delete experiment from database
+            q = Query()
+            await to_thread(self._experiments_table.remove, q.eid == eid)
+
+            # drop experiment from cache
+            self._experiments.pop(eid, None)
+            for run_id in run_ids:
+                self._runs.pop(run_id, None)
+
+            # delete experiment data directory (archive + any results archives)
+            data_dir = self._experiment_path(eid=eid)
+            if await to_thread(data_dir.is_dir):
+                await to_thread(rmtree, data_dir)
+                logger.info("Experiment deleted: eid=%d", eid)
 
 
 @dataclass

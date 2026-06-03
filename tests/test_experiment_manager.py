@@ -235,6 +235,130 @@ async def test_get_run_results_missing_raises(
 
 
 @pytest.mark.asyncio
+async def test_delete_removes_experiment(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Delete removes the experiment from DB, cache, and data directory."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment()
+    experiment = await _create_experiment(manager, definition, directory)
+
+    data_dir = manager._experiment_path(eid=experiment.eid)
+    assert data_dir.is_dir()
+
+    await manager.delete(eid=experiment.eid)
+
+    assert not data_dir.exists()
+    assert experiment.eid not in manager._experiments
+    assert await manager.get_all() == []
+
+    with pytest.raises(NoSuchExperimentError):
+        await manager.get_experiment(eid=experiment.eid)
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_raises(tmp_path: Path) -> None:
+    """Delete raises NoSuchExperimentError for an unknown eid."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    with pytest.raises(NoSuchExperimentError):
+        await manager.delete(eid=99999)
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_results_archives(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Delete removes results archives along with the experiment directory."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=0)
+    await _submit_success(manager, dispatched.run)
+
+    result_path = manager._run_results_path(rid=dispatched.run.run_id)
+    assert result_path.is_file()
+
+    data_dir = manager._experiment_path(eid=experiment.eid)
+    await manager.delete(eid=experiment.eid)
+
+    assert not data_dir.exists()
+    assert not result_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_cancels_pending_dispatches(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Delete purges pending dispatches for the deleted experiment's runs."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    await _create_experiment(manager, definition, directory)
+
+    pending = await manager.dispatch_waiting_run()
+    assert pending is not None
+    assert pending.run.run_id in manager._pending_dispatches
+
+    await manager.delete(eid=pending.run.eid)
+
+    assert pending.run.run_id not in manager._pending_dispatches
+
+    # context exit should not raise even though the experiment is gone
+    async with pending:
+        pass  # no finalise → cancel, which is now a no-op discard
+
+
+@pytest.mark.asyncio
+async def test_delete_finished_experiment(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Finished experiments are evicted from the cache but remain deletable via DB."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=0)
+    await _submit_success(manager, dispatched.run)
+
+    # experiment is finished → evicted from cache
+    assert experiment.eid not in manager._experiments
+
+    await manager.delete(eid=experiment.eid)
+
+    assert await manager.get_all() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_does_not_affect_other_experiments(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Deleting one experiment leaves other experiments intact."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition_a, directory_a = make_experiment()
+    definition_b, directory_b = make_experiment()
+    exp_a = await _create_experiment(manager, definition_a, directory_a)
+    exp_b = await _create_experiment(manager, definition_b, directory_b)
+
+    await manager.delete(eid=exp_a.eid)
+
+    remaining = await manager.get_all()
+    assert len(remaining) == 1
+    assert remaining[0].eid == exp_b.eid
+    assert manager._experiment_path(eid=exp_b.eid).is_dir()
+
+
+@pytest.mark.asyncio
 async def test_persistence_across_manager_restart(
     tmp_path: Path,
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],

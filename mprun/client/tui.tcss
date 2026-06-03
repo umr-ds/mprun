@@ -42,7 +42,7 @@
     padding: 1 2;
 }
 
-ConfirmDownloadDialog {
+ConfirmDeleteDialogue, ConfirmDownloadDialog {
     align: center middle;
 }
 
