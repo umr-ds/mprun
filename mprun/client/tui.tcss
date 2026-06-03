@@ -21,6 +21,14 @@
     padding: 1 2;
 }
 
+#create-placeholder {
+    width: 1fr;
+    height: 1fr;
+    border: solid $accent;
+    padding: 1 2;
+    content-align: center middle;
+}
+
 ConfirmDownloadDialog {
     align: center middle;
 }

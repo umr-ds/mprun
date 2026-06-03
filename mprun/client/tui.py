@@ -36,8 +36,8 @@ def _fmt_ts(ts: float | None) -> str:
     )
 
 
-class ConfirmDownloadDialog(ModalScreen[bool]):
-    """Confirmation dialog for result download."""
+class ConfirmDownloadDialogue(ModalScreen[bool]):
+    """Confirmation dialogue for result download."""
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("y", "confirm", "Yes"),
@@ -46,7 +46,7 @@ class ConfirmDownloadDialog(ModalScreen[bool]):
     ]
 
     def __init__(self, run_name: str) -> None:
-        """Initialise dialog.
+        """Initialise dialogue.
 
         Args:
             run_name: Display name of the run to download.
@@ -192,7 +192,7 @@ class DetailView(Screen):
             if result:
                 self.call_later(self._do_download, run)
 
-        self.app.push_screen(ConfirmDownloadDialog(run_name), on_confirm)
+        self.app.push_screen(ConfirmDownloadDialogue(run_name), on_confirm)
 
     async def _do_download(self, run: dict) -> None:
         """Download run results to the current working directory."""
@@ -221,22 +221,20 @@ class DetailView(Screen):
         self.call_later(self._refresh)
 
 
-class ExperimentTui(App):
-    """TUI for browsing experiments."""
+class OverViewScreen(Screen):
+    """Over-View: browsable list of all experiments."""
 
     TITLE = "Over-View"
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
-        ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh now"),
         ("d", "download", "Download results"),
         ("f", "search", "Search"),
+        ("c", "create", "Create-Mode"),
     ]
 
-    CSS_PATH = "tui.tcss"
-
-    def __init__(self, base_url: str = DEFAULT_URL) -> None:
-        """Initialise the TUI.
+    def __init__(self, base_url: str) -> None:
+        """Initialise Over-View.
 
         Args:
             base_url: Server base URL.
@@ -339,7 +337,7 @@ class ExperimentTui(App):
         if idx is not None and idx < len(self._visible_experiments):
             exp = self._visible_experiments[idx]
             self._exit_search()
-            self.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
+            self.app.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
 
     def on_key(self, event: events.Key) -> None:
         """Forward arrow keys to list and Escape to exit search while in search mode."""
@@ -411,7 +409,7 @@ class ExperimentTui(App):
         idx = lv.index
         if idx is not None and idx < len(self._visible_experiments):
             exp = self._visible_experiments[idx]
-            self.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
+            self.app.push_screen(DetailView(base_url=self.base_url, eid=exp["eid"]))
 
     def action_download(self) -> None:
         """Prompt for confirmation then download all results for the selected experiment."""
@@ -425,7 +423,7 @@ class ExperimentTui(App):
             if result:
                 self.call_later(self._do_download_experiment, exp)
 
-        self.push_screen(ConfirmDownloadDialog(exp["name"]), on_confirm)
+        self.app.push_screen(ConfirmDownloadDialogue(exp["name"]), on_confirm)
 
     async def _do_download_experiment(self, exp: dict) -> None:
         """Download all run results for an experiment into a subdirectory named by EID."""
@@ -453,9 +451,67 @@ class ExperimentTui(App):
             severity="warning" if failed else "information",
         )
 
+    def action_create(self) -> None:
+        """Switch to Create-Mode."""
+        if self._search_mode:
+            return
+        self.app.switch_screen(CreateScreen(self.base_url))
+
     def action_refresh(self) -> None:
         """Refresh immediately."""
         self.call_later(self._refresh)
+
+
+class CreateScreen(Screen):
+    """Create-Mode: placeholder for experiment creation."""
+
+    TITLE = "Create-Mode"
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("v", "view_mode", "View-Mode"),
+    ]
+
+    def __init__(self, base_url: str) -> None:
+        """Initialise Create-Mode.
+
+        Args:
+            base_url: Server base URL.
+        """
+        super().__init__()
+        self.base_url = base_url
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        yield Header(show_clock=True)
+        yield Static("Create-Mode — not yet implemented", id="create-placeholder")
+        yield Footer()
+
+    def action_view_mode(self) -> None:
+        """Switch back to View-Mode."""
+        self.app.switch_screen(OverViewScreen(self.base_url))
+
+
+class ExperimentTui(App):
+    """TUI application shell."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("q", "quit", "Quit"),
+    ]
+
+    CSS_PATH = "tui.tcss"
+
+    def __init__(self, base_url: str = DEFAULT_URL) -> None:
+        """Initialise the TUI.
+
+        Args:
+            base_url: Server base URL.
+        """
+        super().__init__()
+        self.base_url = base_url
+
+    async def on_mount(self) -> None:
+        """Push the initial screen."""
+        await self.push_screen(OverViewScreen(self.base_url))
 
 
 def run_tui(base_url: str | None = None) -> None:
