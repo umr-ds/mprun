@@ -53,3 +53,16 @@ ConfirmDownloadDialog {
     background: $surface;
     padding: 1 2;
 }
+
+ExperimentPreviewModal {
+    align: center middle;
+}
+
+#experiment-preview {
+    width: 72;
+    height: auto;
+    max-height: 80%;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}

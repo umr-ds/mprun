@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,8 +25,9 @@ from mprun.client.client import (
     DEFAULT_URL,
     download_run_results,
     get_experiment_results_parallel,
+    submit_experiment,
 )
-from mprun.models import Experiment
+from mprun.models import Experiment, ExperimentDefinition, ValidationMode
 
 REFRESH_TIME: float = 30.0
 
@@ -231,7 +233,7 @@ class OverViewScreen(Screen):
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("r", "refresh", "Refresh now"),
         ("d", "download", "Download results"),
-        ("f", "search", "Search"),
+        ("f", "search", "Find"),
         ("c", "create", "Create-Mode"),
     ]
 
@@ -464,8 +466,107 @@ class OverViewScreen(Screen):
         self.call_later(self._refresh)
 
 
+class ExperimentPreviewModal(ModalScreen[None]):
+    """Preview a parsed ExperimentDefinition and optionally submit the job."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("y", "confirm", "Yes"),
+        ("n", "cancel", "No"),
+        ("escape", "cancel", "No"),
+    ]
+
+    def __init__(
+        self,
+        definition: ExperimentDefinition,
+        file_path: Path,
+        base_url: str,
+    ) -> None:
+        """Initialise modal.
+
+        Args:
+            definition: Parsed definition to display.
+            file_path: Path to the TOML file (passed to submit_experiment).
+            base_url: Server base URL.
+        """
+        super().__init__()
+        self._definition = definition
+        self._file_path = file_path
+        self._base_url = base_url
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        with Vertical(id="experiment-preview"):
+            yield Static(self._build_content(), id="experiment-preview-content")
+        yield Footer()
+
+    def _build_content(self) -> str:
+        defn = self._definition
+        run_count = math.prod(len(v) for v in defn.params.values()) * defn.iterations
+        params_lines = "\n".join(
+            f"  {markup_escape(k)}: {markup_escape(str(v))}"
+            for k, v in defn.params.items()
+        )
+        results_lines = (
+            "\n".join(
+                f"  {markup_escape(k)} → {markup_escape(v)}"
+                for k, v in defn.results.items()
+            )
+            or "  none"
+        )
+        timeout_str = f"{defn.timeout}s" if defn.timeout is not None else "none"
+        env_vars_str = (
+            ", ".join(markup_escape(k) for k in defn.environment_variables)
+            if defn.environment_variables
+            else "none"
+        )
+        env_files_str = (
+            ", ".join(
+                f"{markup_escape(k)} → {markup_escape(v)}"
+                for k, v in defn.environment_files.items()
+            )
+            if defn.environment_files
+            else "none"
+        )
+        setup = (
+            markup_escape(defn.setup_executable) if defn.setup_executable else "none"
+        )
+
+        return (
+            f"[bold]{markup_escape(defn.name)}[/bold]\n\n"
+            f"[dim]Executable:[/dim]   {markup_escape(defn.executable)}\n"
+            f"[dim]Setup:[/dim]        {setup}\n"
+            f"[dim]Timeout:[/dim]      {timeout_str}\n"
+            f"[dim]Iterations:[/dim]   {defn.iterations}\n"
+            f"[dim]Total runs:[/dim]   {run_count}\n"
+            f"[dim]Env vars:[/dim]     {env_vars_str}\n"
+            f"[dim]Env files:[/dim]    {env_files_str}\n"
+            f"\n[dim]Parameters:[/dim]\n{params_lines}\n"
+            f"\n[dim]Results:[/dim]\n{results_lines}\n\n"
+            "Submit? [bold][y][/bold][u]Y[/u]es  [bold][n][/bold][u]N[/u]o"
+        )
+
+    async def action_confirm(self) -> None:
+        """Submit the experiment and switch to View-Mode on success."""
+        file_path = self._file_path
+        base_url = self._base_url
+
+        try:
+            with httpx.Client(base_url=base_url) as http:
+                await asyncio.to_thread(submit_experiment, http, file_path)
+        except Exception as e:  # noqa: BLE001
+            self.notify(str(e).splitlines()[0], severity="error")
+            return
+
+        await self.dismiss()
+        await self.app.switch_screen(OverViewScreen(base_url))
+
+    def action_cancel(self) -> None:
+        """Close modal without submitting."""
+        self.dismiss()
+
+
 class CreateScreen(Screen):
-    """Create-Mode: three-pane file explorer (yazi-style)."""
+    """Create-Mode: three-pane file explorer."""
 
     TITLE = "Create-Mode"
 
@@ -473,6 +574,7 @@ class CreateScreen(Screen):
         ("v", "view_mode", "View-Mode"),
         ("left", "go_up", "Parent"),
         ("right", "go_into", "Enter"),
+        ("c", "open_preview", "Create"),
     ]
 
     def __init__(self, base_url: str) -> None:
@@ -596,6 +698,29 @@ class CreateScreen(Screen):
     def on_list_view_highlighted(self, _event: ListView.Highlighted) -> None:
         """Update preview when cursor moves."""
         self._update_preview_pane()
+
+    def _try_open_toml_preview(self) -> None:
+        lv = self.query_one("#pane-current", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._entries):
+            return
+        entry = self._entries[idx]
+        if entry.is_dir() or entry.suffix.lower() != ".toml":
+            return
+        try:
+            defn = ExperimentDefinition.load_toml(entry, ValidationMode.DATA_ONLY)
+        except Exception as e:  # noqa: BLE001
+            self.notify(str(e).splitlines()[0], severity="error")
+            return
+        self.app.push_screen(ExperimentPreviewModal(defn, entry, self.base_url))
+
+    def on_list_view_selected(self, _event: ListView.Selected) -> None:
+        """Open TOML preview on Enter; no-op on directories and non-TOML files."""
+        self._try_open_toml_preview()
+
+    def action_open_preview(self) -> None:
+        """Open TOML preview for selected file; no-op on directories and non-TOML files."""
+        self._try_open_toml_preview()
 
     def action_go_up(self) -> None:
         """Navigate to parent directory."""
