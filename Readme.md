@@ -46,26 +46,135 @@ Configured via environment variables (all required):
 ### Client
 
 ```bash
-mprun_client [list|get|create] # (package entrypoint)
+mprun_client [COMMAND] [OPTIONS]
 ```
 
-See `mprun_client --help` for all options.
+Run without a subcommand to open the interactive TUI. Pass a subcommand for non-interactive use.
+
+#### CLI subcommands
+
+| Command                                          | Description                                    |
+|:-------------------------------------------------|:-----------------------------------------------|
+| `list [-u URL] [-j]`                             | List all experiments                           |
+| `get <eid> [-u URL] [-j]`                        | Show experiment and its runs                   |
+| `create <file.toml> [-u URL] [-j]`               | Submit experiment from TOML file               |
+| `delete <eid> [-u URL] [-y]`                     | Delete experiment (prompts unless `-y`)        |
+| `results <eid>-<index>-<iter> [-o DIR] [-u URL]` | Download single run's result archive           |
+| `get-results <eid> [-o DIR] [-u URL]`            | Download all result archives for an experiment |
+
+`-u` / `--base-url` overrides `MPRUN_SERVER_ADDRESS` (default `http://localhost:8000`).
+`-j` / `--json` prints raw JSON instead of a table.
+
+#### Interactive TUI
+
+```bash
+mprun_client          # opens TUI
+```
+
+The TUI has three screens: **Over-View**, **Detail-View**, and **Create-Mode**.
+
+##### Over-View (experiment list)
+
+| Key       | Action                                                           |
+|:----------|:-----------------------------------------------------------------|
+| `↑` / `↓` | Navigate experiments                                             |
+| `Enter`   | Open Detail-View for selected experiment                         |
+| `f`       | Enter search mode (fuzzy-match by name; `Escape` to exit)        |
+| `d`       | Download all results for selected experiment into `<cwd>/<eid>/` |
+| `r`       | Delete selected experiment (confirmation required)               |
+| `c`       | Switch to Create-Mode                                            |
+| `Ctrl+R`  | Refresh list now (auto-refreshes every 30 s)                     |
+| `q`       | Quit                                                             |
+
+##### Detail-View (runs of one experiment)
+
+| Key       | Action                                                      |
+|:----------|:------------------------------------------------------------|
+| `↑` / `↓` | Navigate runs                                               |
+| `d`       | Download selected run's result archive to current directory |
+| `r`       | Refresh now                                                 |
+| `Escape`  | Back to Over-View                                           |
+
+##### Create-Mode (three-pane file explorer)
+
+| Key           | Action                                               |
+|:--------------|:-----------------------------------------------------|
+| `↑` / `↓`     | Navigate entries                                     |
+| `→`           | Enter highlighted directory                          |
+| `←`           | Go to parent directory                               |
+| `Enter` / `c` | Preview selected `.toml` file and confirm submission |
+| `y` / `n`     | Confirm or cancel submission in the preview dialogue |
+| `v`           | Switch back to Over-View                             |
+| `q`           | Quit                                                 |
+
+Non-TOML files and directories are dimmed; only `.toml` files can be submitted.
 
 ## Experiment creation
 
-The client can create an experiment from a TOML file.
-The file format is as follows:
+Experiments are defined in TOML files and submitted via `mprun_client create <file.toml>` or the TUI's Create-Mode.
+
+The TOML file must live in the same directory as the `executable` (and `setup_executable`, if used). All paths in `environment_files` are resolved relative to that directory.
+
+### Minimal example
 
 ```toml
-name = "test experiment"
+name = "my experiment"
+executable = "run.sh"
 
 [params]
-foo = [1, 2, 3]
-bar = [true, false]
+learning_rate = [0.001, 0.01, 0.1]
+batch_size    = [32, 64]
+
+[results]
+"output/metrics.json" = "metrics.json"
 ```
 
-- `name` is the human-readable experiment name. This name does not need to be unique, as each experiment will have its own unique ID.
-- `params` can have an arbitrary number of parameters. Each parameter must be a list of arbitrary values.
+This produces 6 runs (3 × 2 Cartesian product). Each run receives its parameter combination as command-line arguments.
+
+### Full example
+
+```toml
+name        = "grid search"
+executable  = "train.py"
+setup_executable = "setup.sh"   # optional: run once before each main run
+iterations  = 3                 # repeat each param combo 3 times
+timeout     = 3600              # seconds; omit for no timeout
+
+[params]
+learning_rate = [0.001, 0.01]
+dropout       = [0.1, 0.5]
+seed          = [42]
+
+[results]
+# worker_path = name_inside_results_archive
+"output/model.pt"      = "model.pt"
+"output/metrics.json"  = "metrics.json"
+
+[environment_variables]
+CUDA_VISIBLE_DEVICES = "0"
+LOG_LEVEL            = "INFO"
+
+[environment_files]
+# source (relative to TOML dir) = destination on worker
+"data/train.csv" = "data/train.csv"
+"configs/"       = "configs/"
+```
+
+Total runs = `product(len(values) for each param) × iterations` = 2 × 2 × 1 × 3 = 12.
+
+### Field reference
+
+| Field                   | Required | Description                                                                                                                                           |
+|:------------------------|:--------:|:------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`                  |   yes    | Human-readable label. Need not be unique — each experiment gets its own UUID.                                                                         |
+| `executable`            |   yes    | Filename of the main script/binary. Must exist in the same directory as the TOML and be marked executable.                                            |
+| `params`                |   yes    | Dict of `param_name = [value, …]`. Values can be `str`, `int`, `float`, or `bool`. Runs = Cartesian product of all lists.                             |
+| `results`               |   yes    | Dict of `"worker_path" = "archive_name"`. Paths/directories collected from the worker after each run and stored in the result archive.                |
+| `iterations`            |    no    | How many times each parameter combination is run. Default `1`. Use `>1` for non-deterministic experiments.                                            |
+| `timeout`               |    no    | Per-run timeout in seconds. Omit (or set to nothing) for unlimited.                                                                                   |
+| `setup_executable`      |    no    | Script run before each main run. Must be in the same directory as the TOML and be marked executable.                                                  |
+| `environment_variables` |    no    | Dict of `NAME = "value"` pairs set in the worker's environment before execution.                                                                      |
+| `environment_files`     |    no    | Dict of `"src" = "dst"`. Source paths are relative to the TOML directory; destinations are paths on the worker. Files and directories both supported. |
 
 ## Development
 
