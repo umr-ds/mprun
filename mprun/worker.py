@@ -7,21 +7,23 @@ from __future__ import annotations
 import asyncio
 import asyncio.subprocess
 import logging
-from asyncio import Lock, Task, create_task, sleep, to_thread, wait_for
+from asyncio import Task, create_task, sleep, to_thread, wait_for
 from http import HTTPStatus
 from os import environ, getenv
 from pathlib import Path
 from shutil import copy, copytree, rmtree, unpack_archive
 from tempfile import TemporaryDirectory
 from time import time
-from zipfile import ZIP_LZMA, ZipFile
+from typing import BinaryIO
+from zipfile import ZIP_LZMA, BadZipFile, ZipFile
 
 from httpx import AsyncClient, HTTPStatusError
+from pydantic import ValidationError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
 from mprun.custom_types import ActiveState, SuccessState
-from mprun.errors import NoRunError
+from mprun.errors import ArchiveValidationError, NoRunError
 from mprun.log import configure_logging
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -48,8 +50,6 @@ class Worker:
         home_dir (Path): Root directory for worker-local data (archives, results).
         execution_dir (Path): Working directory used during run execution; cleared after each run.
         archive_path (Path): Destination path for the current experiment's ZIP archive.
-        _state_mutex (Lock): Guards ``working`` against concurrent access between the executor
-            loop and the check-in loop.
         _runner_task (Task): Background asyncio task running ``executor_loop``.
     """
 
@@ -60,8 +60,7 @@ class Worker:
     execution_dir: Path
     archive_path: Path
 
-    _state_mutex: Lock
-    _runner_task: Task
+    _runner_task: Task[None]
 
     def __init__(
         self, http_client: AsyncClient, meta_data: WorkerData, home_dir: Path
@@ -81,7 +80,6 @@ class Worker:
         self.execution_dir = self.home_dir / "exec"
         self.execution_dir.mkdir(parents=True, exist_ok=True)
         self.archive_path = self.home_dir / EXPERIMENT_ARCHIVE_NAME
-        self._state_mutex = Lock()
 
     @staticmethod
     async def register(client: AsyncClient, name: str) -> WorkerData:
@@ -140,24 +138,32 @@ class Worker:
         """
         logger.info("Starting worker executor loop")
         while True:
-            await sleep(SLEEP_TIME)
+            try:
+                run = await self.get_work()
+                if run is None:
+                    logger.info("No work to get. Sleeping")
+                    await sleep(SLEEP_TIME)
+                    continue
+                self.working = run
 
-            async with self._state_mutex:
-                if self.working is None:
-                    try:
-                        run = await self.get_work()
-                        if run is None:
-                            continue
-                        self.working = run
-                    except HTTPStatusError:
-                        logger.exception("Error performing checkin with server")
-                        continue
-                    state = await self.execute_run()
-                    self.working.success_state = state
-                    self.working.active_state = ActiveState.FINISHED
-                    self.working.finished_running = time()
-                    await self.collect_results()
-                    await self.upload_results()
+                state = await self.execute_run()
+                logger.info("Updating Run state")
+                self.working.success_state = state
+                self.working.active_state = ActiveState.FINISHED
+                self.working.finished_running = time()
+                await self.collect_results()
+                await self.upload_results()
+            except HTTPStatusError:
+                logger.exception("Error performing checkin with server")
+            except (ArchiveValidationError, BadZipFile, ValidationError):
+                logger.exception("Error with downloaded run")
+                # TODO: inform server of error
+            except OSError:
+                logger.exception("Encountered OSError")
+            except Exception: # noqa: BLE001 - Worker process should survive unexpected exceptions
+                logger.exception("Encountered unexpected exception")
+            finally:
+                if self.working is not None:
                     self.working = None
                     await self.cleanup()
 
@@ -225,6 +231,8 @@ class Worker:
         if self.working is None:
             raise NoRunError
 
+        self.working.active_state = ActiveState.RUNNING
+
         logger.info("Executing Run %s", self.working.run_id)
         env = await self.prepare_run_environment()
 
@@ -237,23 +245,12 @@ class Worker:
                 setup_stdout_path.open("wb") as setup_stdout_file,
                 setup_stderr_path.open("wb") as setup_stderr_file,
             ):
-                process = await asyncio.subprocess.create_subprocess_exec(
-                    program,
-                    shell=False,
+                if not await self.execute(
+                    args=[program],
                     stdout=setup_stdout_file,
                     stderr=setup_stderr_file,
-                    cwd=self.execution_dir,
                     env=env,
-                )
-                if self.working.definition.timeout:
-                    try:
-                        await wait_for(process.wait(), self.working.definition.timeout)
-                    except TimeoutError:
-                        process.kill()
-                        return SuccessState.FAILED
-                else:
-                    await process.wait()
-                if process.returncode != 0:
+                ):
                     return SuccessState.FAILED
 
         stdout_path = self.execution_dir / "stdout"
@@ -267,25 +264,53 @@ class Worker:
             stdout_path.open("wb") as stdout_file,
             stderr_path.open("wb") as stderr_file,
         ):
-            process = await asyncio.subprocess.create_subprocess_exec(
-                *args,
-                shell=False,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                cwd=self.execution_dir,
-                env=env,
-            )
-            if self.working.definition.timeout:
-                try:
-                    await wait_for(process.wait(), self.working.definition.timeout)
-                except TimeoutError:
-                    process.kill()
-                    return SuccessState.FAILED
-            else:
+            if await self.execute(
+                args=args, stdout=stdout_file, stderr=stderr_file, env=env
+            ):
+                return SuccessState.SUCCESS
+            return SuccessState.FAILED
+
+    async def execute(
+        self,
+        args: list[Path | str],
+        stdout: BinaryIO,
+        stderr: BinaryIO,
+        env: dict[str, str],
+    ) -> bool:
+        """Execute single executable.
+
+        Args:
+            args (list[Path | str): Path to executable + list of arguments in ``--arg value`` form.
+            stdout (BinaryIO): Oen file to write executable's stdout to.
+            stderr (BinaryIO): Oen file to write executable's stderr to.
+            env (dict[str, str]): Environment variables for executable.
+
+        Returns:
+            bool: True if the executable finished successfully, False if it failed or timed out.
+        """
+        if self.working is None:
+            raise NoRunError
+
+        logger.debug("Executing: %s", args)
+
+        process = await asyncio.subprocess.create_subprocess_exec(
+            *args,
+            shell=False,
+            stdout=stdout,
+            stderr=stderr,
+            cwd=self.execution_dir,
+            env=env,
+        )
+        if self.working.definition.timeout:
+            try:
+                await wait_for(process.wait(), self.working.definition.timeout)
+            except TimeoutError:
+                process.kill()
                 await process.wait()
-            if process.returncode != 0:
-                return SuccessState.FAILED
-            return SuccessState.SUCCESS
+                return False
+        else:
+            await process.wait()
+        return process.returncode == 0
 
     async def prepare_run_environment(self) -> dict[str, str]:
         """Unpack the experiment archive and build the process environment.
@@ -350,6 +375,8 @@ class Worker:
         if self.working is None:
             raise NoRunError
 
+        logger.info("Collecting Run results")
+
         archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
         with ZipFile(
             archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
@@ -380,6 +407,7 @@ class Worker:
 
     async def cleanup(self) -> None:
         """Clean up execution directory."""
+        logger.info("Cleaning up execution directory")
         await to_thread(rmtree, self.execution_dir)
         await to_thread(self.execution_dir.mkdir)
 
@@ -396,6 +424,7 @@ class Worker:
             name_local (Path): Filesystem path of the file or directory to add.
             name_archive (Path): Path to use as the entry name inside the archive.
         """
+        logger.debug("Adding result %s as %s", name_local, name_archive)
         if await to_thread(name_local.is_file):
             await to_thread(zf.write, name_local, name_archive)
         elif await to_thread(name_local.is_dir):
@@ -438,11 +467,11 @@ class Worker:
         self._runner_task = create_task(self.executor_loop())
 
         while True:
-            await sleep(SLEEP_TIME)
             try:
                 await self.check_in()
             except HTTPStatusError:
                 logger.exception("Error performing checkin with server")
+            await sleep(SLEEP_TIME)
 
     async def check_in(self) -> None:
         """Send a heartbeat to the server and update ``last_check_in``.
@@ -464,7 +493,7 @@ async def _run(server_address: str, name: str, home_directory: Path) -> None:
             server_address=server_address, name=name, home_directory=home_directory
         )
     except HTTPStatusError as err:
-        logger.fatal("Worker registration failed: %s", err, exc_info=True)
+        logger.critical("Worker registration failed: %s", err, exc_info=True)
         raise Exit(1) from err
     await worker.run()
 
@@ -483,17 +512,17 @@ def main(
 
     server_address = getenv(SERVER_ADDRESS_ENV)
     if server_address is None:
-        logger.fatal(f"Environment variable {SERVER_ADDRESS_ENV} not set!")
+        logger.critical("Environment variable %s not set!", SERVER_ADDRESS_ENV)
         raise Exit(1)
 
     name = getenv(WORKER_NAME_ENV)
     if name is None:
-        logger.fatal(f"Environment variable {WORKER_NAME_ENV} not set!")
+        logger.critical("Environment variable %s not set!", WORKER_NAME_ENV)
         raise Exit(1)
 
     home_directory = getenv(WORKER_HOME_DIR)
     if home_directory is None:
-        logger.fatal(f"Environment variable {WORKER_HOME_DIR} not set!")
+        logger.critical("Environment variable %s not set!", WORKER_HOME_DIR)
         raise Exit(1)
     home_directory = Path(home_directory)
 

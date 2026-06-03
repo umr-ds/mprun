@@ -593,12 +593,13 @@ class Run(BaseModel):
         """Build the argument list to pass to the executable.
 
         Returns:
-            list[str]: Arguments in ``key=value`` form, one entry per parameter.
+            list[str]: Arguments in ``--arg value`` form.
         """
         args: list[str] = []
 
         for param, value in self.params.items():
-            args.append(f"{param}={value}")
+            args.append(f"--{param}")
+            args.append(str(value))
 
         return args
 
