@@ -25,6 +25,7 @@ from mprun.models import (
     ActiveState,
     Experiment,
     ExperimentDefinition,
+    FailureReason,
     Run,
     SuccessState,
     WorkerData,
@@ -163,9 +164,9 @@ async def test_execute_run(tmp_path: Path) -> None:
     worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
-    success = await worker.execute_run()
+    failure = await worker.execute_run()
 
-    assert success == SuccessState.SUCCESS
+    assert failure is None
 
 
 @pytest.mark.asyncio
@@ -187,8 +188,8 @@ async def test_collect_results(tmp_path: Path) -> None:
     worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
-    success = await worker.execute_run()
-    assert success == SuccessState.SUCCESS
+    failure = await worker.execute_run()
+    assert failure is None
 
     await worker.collect_results()
 
@@ -281,7 +282,7 @@ async def test_execute_run_fails_when_main_exits_nonzero(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() == SuccessState.FAILED
+    assert await worker.execute_run() == FailureReason.RETURN
 
 
 @pytest.mark.asyncio
@@ -300,7 +301,7 @@ async def test_execute_run_fails_when_setup_exits_nonzero(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() == SuccessState.FAILED
+    assert await worker.execute_run() == FailureReason.RETURN
 
 
 @pytest.mark.asyncio
@@ -323,7 +324,7 @@ async def test_execute_run_passes_env_vars_to_subprocess(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() == SuccessState.SUCCESS
+    assert await worker.execute_run() is None
     assert (worker.execution_dir / "stdout").read_text() == "hello"
 
 

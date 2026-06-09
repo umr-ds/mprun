@@ -49,6 +49,19 @@ class SuccessState(StrEnum):
     FAILED = "FAILED"
 
 
+class FailureReason(StrEnum):
+    """Reason for a Run's failure.
+
+    BAD_ARCHIVE: The experiment's archive failed validation.
+    RETURN: Either the setup or main executable returned with an exit code != 0.
+    TIMEOUT: Either the setup or main executable did not finish within the configured timeout.
+    """
+
+    BAD_ARCHIVE = "BAD_ARCHIVE"
+    RETURN = "RETURN"
+    TIMEOUT = "TIMEOUT"
+
+
 class RunId(NamedTuple):
     """Composite identity for a Run: parent experiment ID + position index."""
 

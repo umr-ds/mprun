@@ -15,7 +15,13 @@ import pytimeparse2
 from pydantic import BaseModel, ValidationInfo, field_validator
 from tomlkit import dump, load
 
-from mprun.custom_types import ActiveState, RunId, SuccessState, TOMLScalar
+from mprun.custom_types import (
+    ActiveState,
+    FailureReason,
+    RunId,
+    SuccessState,
+    TOMLScalar,
+)
 from mprun.errors import ArchiveValidationError, InvalidParametersError
 
 EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
@@ -580,6 +586,8 @@ class Run(BaseModel):
             yet dispatched.
         active_state (ActiveState): Current active state. See ``ActiveState`` for semantics.
         success_state (SuccessState): Current success state. See ``SuccessState`` for semantics.
+        failure_reason (FailureReason | None): If success_state is ``FAILED``, then this field should contain the reason for the failure.
+            If success_state is either ``PENDING`` or ``SUCCESS``, then this field should be ``None``.
         started_running (float | None): Timestamp of when this Run was dispatched. None if it's still waiting.
         finished_running (float | None): Timestamp of when the Worker finished executing this Run. None if it's still waiting or running.
         params (dict[str, TOMLScalar]): Concrete parameter set for this run — one value per
@@ -593,6 +601,7 @@ class Run(BaseModel):
     wid: int | None = None
     active_state: ActiveState
     success_state: SuccessState
+    failure_reason: FailureReason | None = None
     started_running: float | None = None
     finished_running: float | None = None
     params: dict[str, TOMLScalar]

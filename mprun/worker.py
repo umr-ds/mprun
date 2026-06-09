@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.custom_types import ActiveState, SuccessState
+from mprun.custom_types import ActiveState, FailureReason, SuccessState
 from mprun.errors import ArchiveValidationError, NoRunError
 from mprun.log import configure_logging
 from mprun.models import (
@@ -147,11 +147,19 @@ class Worker:
                     continue
                 self.working = run
 
-                state = await self.execute_run()
-                logger.info("Updating Run state")
-                self.working.success_state = state
+                failure = await self.execute_run()
+                logger.info("Finished execution with failure state %s", failure)
+
+                if failure is None:
+                    self.working.success_state = SuccessState.SUCCESS
+                    self.working.failure_reason = None
+                else:
+                    self.working.success_state = SuccessState.FAILED
+                    self.working.failure_reason = failure
                 self.working.active_state = ActiveState.FINISHED
                 self.working.finished_running = time()
+
+                logger.info("Updating Run state")
                 await self.collect_results()
                 await self.upload_results()
             except HTTPStatusError:
@@ -214,7 +222,7 @@ class Worker:
 
         return run
 
-    async def execute_run(self) -> SuccessState:
+    async def execute_run(self) -> FailureReason | None:
         """Execute the current run.
 
         Runs the setup executable (if configured), then the main executable. Environment files
@@ -223,8 +231,7 @@ class Worker:
         ``execution_dir``. If a timeout is configured, the process is killed on expiry.
 
         Returns:
-            SuccessState: ``SUCCESS`` if all executables exited with code 0; ``FAILED`` if any
-                exited with a non-zero code or exceeded the timeout.
+            FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
 
         Raises:
             NoRunError: If called when no run is assigned (``self.working`` is ``None``).
@@ -246,13 +253,14 @@ class Worker:
                 setup_stdout_path.open("wb") as setup_stdout_file,
                 setup_stderr_path.open("wb") as setup_stderr_file,
             ):
-                if not await self.execute(
+                failure = await self.execute(
                     args=[program],
                     stdout=setup_stdout_file,
                     stderr=setup_stderr_file,
                     env=env,
-                ):
-                    return SuccessState.FAILED
+                )
+                if failure is not None:
+                    return failure
 
         stdout_path = self.execution_dir / "stdout"
         stderr_path = self.execution_dir / "stderr"
@@ -265,11 +273,9 @@ class Worker:
             stdout_path.open("wb") as stdout_file,
             stderr_path.open("wb") as stderr_file,
         ):
-            if await self.execute(
+            return await self.execute(
                 args=args, stdout=stdout_file, stderr=stderr_file, env=env
-            ):
-                return SuccessState.SUCCESS
-            return SuccessState.FAILED
+            )
 
     async def execute(
         self,
@@ -277,7 +283,7 @@ class Worker:
         stdout: BinaryIO,
         stderr: BinaryIO,
         env: dict[str, str],
-    ) -> bool:
+    ) -> FailureReason | None:
         """Execute single executable.
 
         Args:
@@ -287,7 +293,7 @@ class Worker:
             env (dict[str, str]): Environment variables for executable.
 
         Returns:
-            bool: True if the executable finished successfully, False if it failed or timed out.
+            FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
         """
         if self.working is None:
             raise NoRunError
@@ -308,10 +314,12 @@ class Worker:
             except TimeoutError:
                 process.kill()
                 await process.wait()
-                return False
+                return FailureReason.TIMEOUT
         else:
             await process.wait()
-        return process.returncode == 0
+        if process.returncode == 0:
+            return None
+        return FailureReason.RETURN
 
     async def prepare_run_environment(self) -> dict[str, str]:
         """Unpack the experiment archive and build the process environment.
