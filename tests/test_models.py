@@ -8,6 +8,7 @@ from zipfile import ZIP_LZMA, ZipFile
 
 import pytest
 
+from mprun.custom_types import ActiveState, FailureReason, SuccessState
 from mprun.errors import ArchiveValidationError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -15,6 +16,7 @@ from mprun.models import (
     EXPERIMENT_MANIFEST_NAME,
     Experiment,
     ExperimentDefinition,
+    Run,
     ValidationMode,
 )
 from tests.conftest import TEST_EXPERIMENT, TEST_EXPERIMENT_FILE
@@ -176,3 +178,30 @@ def test_archive_missing_hash_key(
     corrupted.write_bytes(buf.getvalue())
     with pytest.raises(KeyError):
         definition.validate_archive(archive_path=corrupted)
+
+
+def test_run_reset() -> None:
+    """Run.reset() clears wid, timestamps, failure_reason and reverts to WAITING/PENDING."""
+    definition = ExperimentDefinition(
+        name="test", params={"x": [1]}, executable="main.py", results={}
+    )
+    run = Run(
+        definition=definition,
+        eid=1,
+        index=0,
+        iteration=0,
+        wid=5,
+        active_state=ActiveState.FINISHED,
+        success_state=SuccessState.FAILED,
+        failure_reason=FailureReason.RETURN,
+        started_running=123.0,
+        finished_running=456.0,
+        params={"x": 1},
+    )
+    run.reset()
+    assert run.wid is None
+    assert run.active_state == ActiveState.WAITING
+    assert run.success_state == SuccessState.PENDING
+    assert run.failure_reason is None
+    assert run.started_running is None
+    assert run.finished_running is None

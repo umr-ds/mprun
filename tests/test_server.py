@@ -685,3 +685,91 @@ class TestRuns:
                     data={"run": run.model_dump_json()},
                 )
                 assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_run_reset(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /runs/{eid}/{index}/{iteration}/reset returns WAITING run."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment(params={"x": [1]})
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+            )
+
+            with TestClient(server) as client, archive_path.open("rb") as archive_file:
+                response = client.post(
+                    "/experiments",
+                    data={"experiment_definition": definition.model_dump_json()},
+                    files={
+                        "archive": (
+                            EXPERIMENT_ARCHIVE_NAME,
+                            archive_file,
+                            "application/zip",
+                        )
+                    },
+                )
+                response.raise_for_status()
+                experiment = Experiment.model_validate(response.json())
+
+                run = experiment.runs[0][0]
+                response = client.post(
+                    f"/runs/{run.eid}/{run.index}/{run.iteration}/reset"
+                )
+                assert response.status_code == HTTPStatus.OK
+
+                reset_run = Run.model_validate(response.json())
+                assert reset_run.active_state == ActiveState.WAITING
+                assert reset_run.success_state == SuccessState.PENDING
+                assert reset_run.wid is None
+                assert reset_run.failure_reason is None
+
+    def test_run_reset_missing_run(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /runs/{eid}/{index}/{iteration}/reset returns 404 for unknown run."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment(params={"x": [1]})
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+            )
+
+            with TestClient(server) as client, archive_path.open("rb") as archive_file:
+                response = client.post(
+                    "/experiments",
+                    data={"experiment_definition": definition.model_dump_json()},
+                    files={
+                        "archive": (
+                            EXPERIMENT_ARCHIVE_NAME,
+                            archive_file,
+                            "application/zip",
+                        )
+                    },
+                )
+                response.raise_for_status()
+                experiment = Experiment.model_validate(response.json())
+
+                response = client.post(f"/runs/{experiment.eid}/999/999/reset")
+                assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_run_reset_missing_experiment(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """POST /runs/{eid}/{index}/{iteration}/reset returns 404 for unknown experiment."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                response = client.post("/runs/99999/0/0/reset")
+                assert response.status_code == HTTPStatus.NOT_FOUND

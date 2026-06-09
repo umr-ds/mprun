@@ -748,6 +748,15 @@ class Run(BaseModel):
 
         return args
 
+    def reset(self) -> None:
+        """Resets this Run."""
+        self.wid = None
+        self.active_state = ActiveState.WAITING
+        self.success_state = SuccessState.PENDING
+        self.failure_reason = None
+        self.started_running = None
+        self.finished_running = None
+
 
 class WorkerState(StrEnum):
     """Possible states for Workers.

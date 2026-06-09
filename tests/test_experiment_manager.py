@@ -410,3 +410,111 @@ async def test_persistence_across_manager_restart(
         assert retrieved == experiment
     finally:
         revived.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_run(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """reset_run deletes results file and reverts run to WAITING/PENDING."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=0)
+    await _submit_success(manager, dispatched.run)
+
+    rid = dispatched.run.run_id
+    result_path = manager._run_results_path(rid=rid)
+    assert result_path.is_file()
+
+    await manager.reset_run(rid=rid)
+
+    assert not result_path.is_file()
+
+    retrieved = await manager.get_run(rid=rid)
+    assert retrieved.active_state == ActiveState.WAITING
+    assert retrieved.success_state == SuccessState.PENDING
+    assert retrieved.wid is None
+    assert retrieved.started_running is None
+    assert retrieved.finished_running is None
+    assert retrieved.failure_reason is None
+
+    parent = await manager.get_experiment(eid=experiment.eid)
+    assert parent.active_state == ActiveState.WAITING
+    assert parent.success_state == SuccessState.PENDING
+
+
+@pytest.mark.asyncio
+async def test_reset_run_evicted_experiment(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """reset_run works even when the parent experiment has been evicted from cache."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=0)
+    await _submit_success(manager, dispatched.run)
+
+    assert experiment.eid not in manager._experiments
+
+    rid = dispatched.run.run_id
+    await manager.reset_run(rid=rid)
+
+    assert experiment.eid in manager._experiments
+    assert rid in manager._runs
+    retrieved = await manager.get_run(rid=rid)
+    assert retrieved.active_state == ActiveState.WAITING
+
+
+@pytest.mark.asyncio
+async def test_reset_run_unknown_run(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """reset_run raises NoSuchRunError for an invalid run identity."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    with pytest.raises(NoSuchRunError):
+        await manager.reset_run(rid=RunId(eid=experiment.eid, index=999, iteration=999))
+
+
+@pytest.mark.asyncio
+async def test_reset_run_unknown_experiment(
+    tmp_path: Path,
+) -> None:
+    """reset_run raises NoSuchExperimentError for an unknown eid."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+
+    with pytest.raises(NoSuchExperimentError):
+        await manager.reset_run(rid=RunId(eid=99999, index=0, iteration=0))
+
+
+@pytest.mark.asyncio
+async def test_reset_run_clears_pending_dispatch(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """reset_run removes the run from _pending_dispatches if present."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    await _create_experiment(manager, definition, directory)
+
+    pending = await manager.dispatch_waiting_run()
+    assert pending is not None
+    assert pending.run.run_id in manager._pending_dispatches
+
+    await manager.reset_run(rid=pending.run.run_id)
+
+    assert pending.run.run_id not in manager._pending_dispatches

@@ -299,6 +299,22 @@ async def get_run_results(
     return FileResponse(path=path, media_type="application/zip", filename=path.name)
 
 
+@server.post("/runs/{eid}/{index}/{iteration}/reset", response_model=Run)
+async def reset_run(
+    eid: int,
+    index: int,
+    iteration: int,
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> Run:
+    """Reset a run: delete its results and return it to WAITING state."""
+    rid = RunId(eid=eid, index=index, iteration=iteration)
+    try:
+        await em.reset_run(rid=rid)
+        return await em.get_run(rid=rid)
+    except (NoSuchExperimentError, NoSuchRunError) as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
 @server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
 async def register_worker(
     name: str,

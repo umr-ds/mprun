@@ -295,6 +295,53 @@ class ExperimentManager:
             logger.debug("No waiting runs available")
             return None
 
+    async def reset_run(self, rid: RunId) -> None:
+        """Deletes Run's results (if any exist) and resets its state.
+
+        Most useful if run failed for a reason that has been resolved.
+
+        Args:
+            rid (RunId): Run's ID.
+
+        Raises:
+            NoSuchRunError: If the run is not tracked by this manager.
+            NoSuchExperimentError: If the parent experiment is not tracked by this manager.
+        """
+        async with self._state_mutex:
+            run: Run
+            parent: Experiment
+
+            active = self._runs.get(rid, None)
+            if active is not None:  # parent experiment is active
+                run = active
+                parent = self._experiments[rid.eid]
+            else:  # parent has been evicted
+                retrieved = await self._get_experiment_from_db(eid=rid.eid)
+                if retrieved is None:
+                    raise NoSuchExperimentError(eid=rid.eid)
+                parent = retrieved
+                if (
+                    rid.index < 0
+                    or rid.index >= len(parent.runs)
+                    or rid.iteration < 0
+                    or rid.iteration >= len(parent.runs[rid.index])
+                ):
+                    raise NoSuchRunError(run_id=rid)
+                run = parent.runs[rid.index][rid.iteration]
+                self._experiments[parent.eid] = parent
+                for r in parent.runs:
+                    for r_iter in r:
+                        self._runs[r_iter.run_id] = r_iter
+
+            results_path = self._run_results_path(rid=rid)
+            if await to_thread(results_path.is_file):
+                await to_thread(results_path.unlink)
+
+            self._pending_dispatches.discard(rid)
+            run.reset()
+            parent.recalculate_state()
+            await self._update(experiment=parent)
+
     async def submit_run_results(self, run: Run, results_archive: BinaryIO) -> None:
         """Persist the results of a completed run and update experiment state.
 
