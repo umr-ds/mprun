@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum, StrEnum, auto
+from hashlib import blake2b
 from itertools import product
 from os import X_OK, access
 from pathlib import Path
@@ -26,9 +28,15 @@ from mprun.errors import ArchiveValidationError, InvalidParametersError
 
 EXPERIMENT_DEFINITION_NAME = "experiment_definition.toml"
 EXPERIMENT_ARCHIVE_NAME = "experiment_archive.zip"
+EXPERIMENT_MANIFEST_NAME = "MANIFEST.json"
 
 
-def add_path_to_archive(zf: ZipFile, name_local: Path, name_archive: Path) -> None:
+def add_path_to_archive(
+    zf: ZipFile,
+    name_local: Path,
+    name_archive: str,
+    hashes: dict[str, str] | None = None,
+) -> None:
     """Add a file or directory to an open ZIP archive.
 
     If ``name_local`` is a file, it is added directly. If it is a directory, all files within it
@@ -38,15 +46,43 @@ def add_path_to_archive(zf: ZipFile, name_local: Path, name_archive: Path) -> No
     Args:
         zf (ZipFile): Open, writable ZIP archive.
         name_local (Path): Filesystem path of the file or directory to add.
-        name_archive (Path): Entry name (or prefix for directories) inside the archive.
+        name_archive (str): Entry name (or prefix for directories) inside the archive.
+        hashes (dict[str, int]): Accumulator for file hashes, to verify integrity.
     """
     if name_local.is_file():
         zf.write(name_local, name_archive)
+        if hashes is not None:
+            with name_local.open("rb") as f:
+                hashes[name_archive] = blake2b(data=f.read()).hexdigest()
     elif name_local.is_dir():
         for root, _, files in name_local.walk():
             for file in files:
                 file_path = root / file
-                zf.write(file_path, name_archive / file_path.relative_to(name_local))
+                file_name_in_archive = name_archive / file_path.relative_to(name_local)
+                zf.write(file_path, file_name_in_archive)
+                if hashes is not None:
+                    with file_path.open("rb") as f:
+                        hashes[str(file_name_in_archive)] = blake2b(
+                            data=f.read()
+                        ).hexdigest()
+
+
+def validate_file_hash(zf: ZipFile, name: str, file_hash: str) -> None:
+    """Validate a file inside a Zip archive and raise an exception, if the hash mismatches.
+
+    Args:
+        zf (ZipFile): Open, writable ZIP archive.
+        name (str): Name of the file inside the zip archive.
+        file_hash (str): File's hash.
+
+    Raises:
+        ArchiveValidationError: If ``file_hash`` does not match the computed hash.
+        KeyError: If ``name`` does not exist in the archive.
+    """
+    compute_hash: str = blake2b(data=zf.read(name)).hexdigest()
+    if file_hash != compute_hash:
+        msg = f"{name} hash mismatch"
+        raise ArchiveValidationError(reason=msg)
 
 
 def _expand_parameters(
@@ -360,27 +396,43 @@ class ExperimentDefinition(BaseModel):
         """
         directory = experiment_toml.parent
         archive_path = directory / EXPERIMENT_ARCHIVE_NAME
+        file_hashes: dict[str, str] = {}
         with ZipFile(
             archive_path,
             mode="w",
             compression=ZIP_LZMA,
             allowZip64=True,
         ) as zf:
-            zf.write(
-                experiment_toml, EXPERIMENT_DEFINITION_NAME
+            add_path_to_archive(
+                zf=zf,
+                hashes=file_hashes,
+                name_local=experiment_toml,
+                name_archive=EXPERIMENT_DEFINITION_NAME,
             )  # add ExperimentDefinition itself
-            zf.write(
-                directory / self.executable, self.executable
+            add_path_to_archive(
+                zf=zf,
+                hashes=file_hashes,
+                name_local=directory / self.executable,
+                name_archive=self.executable,
             )  # add main executable
             if self.setup_executable:
-                zf.write(
-                    directory / self.setup_executable, self.setup_executable
+                add_path_to_archive(
+                    zf=zf,
+                    hashes=file_hashes,
+                    name_local=directory / self.setup_executable,
+                    name_archive=self.setup_executable,
                 )  # add setup executable (if one is specified)
             if self.environment_files:
                 for environment_file in self.environment_files:
                     add_path_to_archive(
-                        zf, directory / environment_file, Path(environment_file)
+                        zf=zf,
+                        hashes=file_hashes,
+                        name_local=directory / environment_file,
+                        name_archive=environment_file,
                     )  # add environment files/directories (if any are specified)
+            zf.writestr(
+                zinfo_or_arcname=EXPERIMENT_MANIFEST_NAME, data=json.dumps(file_hashes)
+            )
         return archive_path
 
     def validate_archive(self, archive_path: Path) -> None:
@@ -391,34 +443,90 @@ class ExperimentDefinition(BaseModel):
 
         Raises:
             ArchiveValidationError: If the archive's contents do not match the ExperimentDefinition.
+            FileNotFoundError: If ``archive_path`` does not exist.
+            json.JSONDecodeError: If the manifest file is not valid JSON.
+            KeyError: If the manifest is missing expected hash entries or a file referenced in
+                ``environment_files`` lacks a corresponding hash.
         """
         with ZipFile(archive_path, mode="r") as zf:
             contents = zf.namelist()
+            if EXPERIMENT_MANIFEST_NAME not in contents:
+                msg = "Archive does not contain manifest"
+                raise ArchiveValidationError(reason=msg)
+            file_hashes: dict[str, str]
+            with zf.open(EXPERIMENT_MANIFEST_NAME, "r") as f:
+                file_hashes = json.load(f)
+
+            # validate experiment definition
             if EXPERIMENT_DEFINITION_NAME not in contents:
                 msg = "Archive does not contain Experiment definition"
                 raise ArchiveValidationError(reason=msg)
-            with zf.open(EXPERIMENT_DEFINITION_NAME, "r") as f:
-                archive_definition = ExperimentDefinition.model_validate(
-                    load(f).unwrap(), strict=True
-                )
-                if archive_definition != self:
-                    msg = "Experiment definition in archive is different"
-                    raise ArchiveValidationError(reason=msg)
+            validate_file_hash(
+                zf=zf,
+                name=EXPERIMENT_DEFINITION_NAME,
+                file_hash=file_hashes[EXPERIMENT_DEFINITION_NAME],
+            )
 
+            # validate main executable
             if self.executable not in contents:
                 msg = "Archive does not contain main executable"
                 raise ArchiveValidationError(reason=msg)
-            if self.setup_executable and self.setup_executable not in contents:
-                msg = "Archive does not contain setup executable"
-                raise ArchiveValidationError(reason=msg)
-            if self.environment_files:
-                for env_file in self.environment_files:
-                    prefix = env_file + "/"
-                    if env_file not in contents and not any(
-                        c.startswith(prefix) for c in contents
-                    ):
-                        msg = f"Archive does not contain environment file or directory {env_file}"
-                        raise ArchiveValidationError(reason=msg)
+            validate_file_hash(
+                zf=zf, name=self.executable, file_hash=file_hashes[self.executable]
+            )
+
+            # validate setup executable
+            if self.setup_executable:
+                if self.setup_executable not in contents:
+                    msg = "Archive does not contain setup executable"
+                    raise ArchiveValidationError(reason=msg)
+                validate_file_hash(
+                    zf=zf,
+                    name=self.setup_executable,
+                    file_hash=file_hashes[self.setup_executable],
+                )
+
+            self._validate_env_files(zf, contents, file_hashes)
+
+    def _validate_env_files(
+        self,
+        zf: ZipFile,
+        contents: list[str],
+        file_hashes: dict[str, str],
+    ) -> None:
+        """Validate environment files in the archive and their hashes.
+
+        Args:
+            zf (ZipFile): Open, readable ZIP archive.
+            contents (list[str]): List of entry names in the archive.
+            file_hashes (dict[str, str]): Map of entry name to expected hash.
+
+        Raises:
+            ArchiveValidationError: If a file is missing or a hash mismatches.
+            KeyError: If a file referenced in ``environment_files`` lacks a corresponding hash.
+        """
+        if self.environment_files:
+            for env_file in self.environment_files:
+                prefix = env_file + "/"
+                if env_file not in contents and not any(
+                    c.startswith(prefix) for c in contents
+                ):
+                    msg = f"Archive does not contain environment file or directory {env_file}"
+                    raise ArchiveValidationError(reason=msg)
+                if env_file in contents:
+                    validate_file_hash(
+                        zf=zf,
+                        name=env_file,
+                        file_hash=file_hashes[env_file],
+                    )
+                else:
+                    for name in contents:
+                        if name.startswith(prefix):
+                            validate_file_hash(
+                                zf=zf,
+                                name=name,
+                                file_hash=file_hashes[name],
+                            )
 
 
 class Experiment(BaseModel):

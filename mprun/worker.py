@@ -422,7 +422,7 @@ class Worker:
                 await Worker.add_result(
                     zf=zf,
                     name_local=name_local,
-                    name_archive=Path(result_archive),
+                    name_archive=result_archive,
                 )
 
     async def cleanup(self) -> None:
@@ -432,7 +432,7 @@ class Worker:
         await to_thread(self.execution_dir.mkdir)
 
     @staticmethod
-    async def add_result(zf: ZipFile, name_local: Path, name_archive: Path) -> None:
+    async def add_result(zf: ZipFile, name_local: Path, name_archive: str) -> None:
         """Add a file or directory to an open ZIP archive.
 
         If ``name_local`` is a file, it is added directly. If it is a directory, all files
@@ -442,10 +442,12 @@ class Worker:
         Args:
             zf (ZipFile): Open, writable ZIP archive to add the result to.
             name_local (Path): Filesystem path of the file or directory to add.
-            name_archive (Path): Path to use as the entry name inside the archive.
+            name_archive (str): Path to use as the entry name inside the archive.
         """
         logger.debug("Adding result %s as %s", name_local, name_archive)
-        await to_thread(add_path_to_archive, zf, name_local, name_archive)
+        await to_thread(
+            add_path_to_archive, zf=zf, name_local=name_local, name_archive=name_archive
+        )
 
     async def report_error(self) -> None:
         """Report a run error to the server without a results archive.
