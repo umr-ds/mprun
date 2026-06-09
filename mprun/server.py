@@ -144,6 +144,20 @@ async def get_experiment(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
+@server.get("/experiments/{eid}/archive")
+async def get_experiment_archive(
+    eid: int,
+    em: ExperimentManager = Depends(get_experiment_manager),
+) -> FileResponse:
+    """Return the experiment's original archive as a ZIP file."""
+    try:
+        _ = await em.get_experiment(eid)
+    except NoSuchExperimentError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    path = em.get_experiment_archive(eid)
+    return FileResponse(path=path, media_type="application/zip", filename=path.name)
+
+
 @server.delete("/experiments/{eid}")
 async def delete_experiment(
     eid: int,

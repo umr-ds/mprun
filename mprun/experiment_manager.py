@@ -118,16 +118,16 @@ class ExperimentManager:
             docs = await to_thread(self._experiments_table.all)
             return [Experiment.model_validate(doc) for doc in docs]
 
-    def get_experiment_archive(self, experiment: Experiment) -> Path:
+    def get_experiment_archive(self, eid: int) -> Path:
         """Return the filesystem path to an experiment's archive.
 
         Args:
-            experiment (Experiment): The experiment whose archive path to return.
+            eid (int): The experiment's ID.'
 
         Returns:
             Path: Path to the experiment's ZIP archive.
         """
-        return self._experiment_path(eid=experiment.eid) / EXPERIMENT_ARCHIVE_NAME
+        return self._experiment_path(eid=eid) / EXPERIMENT_ARCHIVE_NAME
 
     def _experiment_path(self, eid: int) -> Path:
         return self._data_path / str(eid)
@@ -532,4 +532,4 @@ class PendingDispatch:
         """
         self.wid = wid
         self._finalised = True
-        return self.manager.get_experiment_archive(experiment=self.experiment)
+        return self.manager.get_experiment_archive(eid=self.experiment.eid)
