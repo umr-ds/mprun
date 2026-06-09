@@ -7,7 +7,7 @@ import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import ClassVar, override
+from typing import Any, ClassVar, override
 
 import httpx
 from rapidfuzz import fuzz
@@ -117,7 +117,7 @@ class ConfirmDownloadDialogue(ModalScreen[bool]):
         self.dismiss(confirmed)
 
 
-class DetailView(Screen):
+class DetailView(Screen[None]):
     """Detail-View: runs of a single experiment."""
 
     TITLE = "Detail-View"
@@ -138,7 +138,7 @@ class DetailView(Screen):
         super().__init__()
         self.base_url = base_url
         self.eid = eid
-        self._runs: list[dict] = []
+        self._runs: list[dict[str, Any]] = []
 
     @override
     def compose(self) -> ComposeResult:
@@ -186,7 +186,7 @@ class DetailView(Screen):
         else:
             self._update_run_panel(None, exp_name)
 
-    def _update_run_panel(self, run: dict | None, exp_name: str) -> None:
+    def _update_run_panel(self, run: dict[str, Any] | None, exp_name: str) -> None:
         """Render run metadata into the detail panel."""
         panel = self.query_one("#run-panel", Static)
         if run is None:
@@ -239,7 +239,7 @@ class DetailView(Screen):
 
         self.app.push_screen(ConfirmDownloadDialogue(run_name), on_confirm)
 
-    async def _do_download(self, run: dict) -> None:
+    async def _do_download(self, run: dict[str, Any]) -> None:
         """Download run results to the current working directory."""
         eid = run["eid"]
         index = run["index"]
@@ -266,7 +266,7 @@ class DetailView(Screen):
         self.call_later(self._refresh)
 
 
-class OverViewScreen(Screen):
+class OverViewScreen(Screen[None]):
     """Over-View: browsable list of all experiments."""
 
     TITLE = "Over-View"
@@ -287,8 +287,8 @@ class OverViewScreen(Screen):
         """
         super().__init__()
         self.base_url = base_url
-        self._experiments: list[dict] = []
-        self._visible_experiments: list[dict] = []
+        self._experiments: list[dict[str, Any]] = []
+        self._visible_experiments: list[dict[str, Any]] = []
         self._search_mode: bool = False
 
     @override
@@ -401,7 +401,7 @@ class OverViewScreen(Screen):
             lv.action_cursor_down()
             event.stop()
 
-    def _update_detail(self, exp: dict | None) -> None:
+    def _update_detail(self, exp: dict[str, Any] | None) -> None:
         """Render experiment metadata into the detail panel."""
         panel = self.query_one("#detail-panel", Static)
         if exp is None:
@@ -472,7 +472,7 @@ class OverViewScreen(Screen):
 
         self.app.push_screen(ConfirmDownloadDialogue(exp["name"]), on_confirm)
 
-    async def _do_download_experiment(self, exp: dict) -> None:
+    async def _do_download_experiment(self, exp: dict[str, Any]) -> None:
         """Download all run results for an experiment into a subdirectory named by EID."""
         experiment = Experiment.model_validate(exp)
         out_dir = Path.cwd() / str(exp["eid"])
@@ -514,7 +514,7 @@ class OverViewScreen(Screen):
 
         self.app.push_screen(ConfirmDeleteDialogue(exp["name"]), on_confirm)
 
-    async def _do_delete_experiment(self, exp: dict) -> None:
+    async def _do_delete_experiment(self, exp: dict[str, Any]) -> None:
         """Delete an experiment via the server and refresh the list."""
         eid = exp["eid"]
 
@@ -647,7 +647,7 @@ class ExperimentPreviewModal(ModalScreen[None]):
         self.dismiss()
 
 
-class CreateScreen(Screen):
+class CreateScreen(Screen[None]):
     """Create-Mode: three-pane file explorer."""
 
     TITLE = "Create-Mode"
@@ -827,7 +827,7 @@ class CreateScreen(Screen):
         self.app.switch_screen(OverViewScreen(self.base_url))
 
 
-class ExperimentTui(App):
+class ExperimentTui(App[None]):
     """TUI application shell."""
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
