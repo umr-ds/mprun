@@ -240,6 +240,35 @@ async def run_results(
         ) from err
 
 
+@server.post("/runs/error")
+async def run_error(
+    wid: int,
+    run: str = Form(...),
+    em: ExperimentManager = Depends(get_experiment_manager),
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Response:
+    """Accept a failed run's error report from a worker.
+
+    Expects the failed ``Run`` object as a JSON-encoded form field. Used when the worker
+    encounters an error before any results could be collected (e.g. archive validation
+    failure). Marks the worker as idle and records the failure. Returns ``404`` if the
+    worker, experiment, or run is not found, and ``422`` if the run JSON is malformed.
+    """
+    try:
+        run_data = Run.model_validate_json(run)
+
+        await wm.unassign_run(wid=wid, run_id=run_data.run_id, state=WorkerState.IDLE)
+        await em.record_run_failure(run=run_data)
+
+        return Response(status_code=HTTPStatus.OK)
+    except (NoSuchWorkerError, NoSuchExperimentError, NoSuchRunError) as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    except ValidationError as err:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(err)
+        ) from err
+
+
 @server.get("/runs/{eid}/{index}/{iteration}", response_model=Run)
 async def get_run(
     eid: int,

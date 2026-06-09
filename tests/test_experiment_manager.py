@@ -1,5 +1,6 @@
 """Tests for experiment_manager module."""
 
+import time
 import zipfile
 from collections.abc import Callable
 from io import BytesIO
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mprun.custom_types import ActiveState, RunId, SuccessState
+from mprun.custom_types import ActiveState, FailureReason, RunId, SuccessState
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.experiment_manager import ExperimentManager, PendingDispatch
 from mprun.models import (
@@ -125,6 +126,39 @@ async def test_results_submit(
     assert submitted_run.active_state == ActiveState.FINISHED
     assert submitted_run.success_state == SuccessState.SUCCESS
     assert retrieved.active_state == ActiveState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_record_run_failure(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """record_run_failure updates run state without a results archive on disk."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment()
+    await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=0)
+    run = dispatched.run
+
+    run.active_state = ActiveState.FINISHED
+    run.success_state = SuccessState.FAILED
+    run.failure_reason = FailureReason.BAD_ARCHIVE
+    run.finished_running = time.time()
+    await manager.record_run_failure(run=run)
+
+    result_path = manager._run_results_path(rid=run.run_id)
+    assert not result_path.is_file()
+
+    retrieved = await manager.get_experiment(eid=dispatched.experiment.eid)
+    submitted_run = retrieved.runs[run.index][run.iteration]
+    assert submitted_run.active_state == ActiveState.FINISHED
+    assert submitted_run.success_state == SuccessState.FAILED
+    assert submitted_run.failure_reason == FailureReason.BAD_ARCHIVE
+    assert retrieved.success_state == SuccessState.FAILED
 
 
 @pytest.mark.asyncio

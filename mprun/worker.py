@@ -18,7 +18,6 @@ from typing import BinaryIO
 from zipfile import ZIP_LZMA, BadZipFile, ZipFile
 
 from httpx import AsyncClient, HTTPStatusError
-from pydantic import ValidationError
 from typer import Exit, Option, Typer
 
 from mprun import SERVER_ADDRESS_ENV
@@ -140,12 +139,11 @@ class Worker:
         logger.info("Starting worker executor loop")
         while True:
             try:
-                run = await self.get_work()
-                if run is None:
+                await self.get_work()
+                if self.working is None:
                     logger.info("No work to get. Sleeping")
                     await sleep(SLEEP_TIME)
                     continue
-                self.working = run
 
                 failure = await self.execute_run()
                 logger.info("Finished execution with failure state %s", failure)
@@ -162,34 +160,38 @@ class Worker:
                 logger.info("Updating Run state")
                 await self.collect_results()
                 await self.upload_results()
+            except (ArchiveValidationError, BadZipFile):
+                logger.exception("Archive validation failed")
+                await self.report_error()
             except HTTPStatusError:
-                logger.exception("Error performing checkin with server")
-            except (ArchiveValidationError, BadZipFile, ValidationError):
-                logger.exception("Error with downloaded run")
-                # TODO: inform server of error
+                logger.exception("Error performing operation with server")
             except OSError:
                 logger.exception("Encountered OSError")
-            except Exception:  # Worker process should survive unexpected exceptions
-                logger.exception("Encountered unexpected exception")
+            except (
+                Exception
+            ) as err:  # Worker process should survive unexpected exceptions
+                logger.critical(
+                    "Encountered unexpected exception: %s", err, exc_info=True
+                )
             finally:
                 if self.working is not None:
                     self.working = None
                     await self.cleanup()
 
-    async def get_work(self) -> Run | None:
+    async def get_work(self) -> None:
         """Query the server for a waiting run.
 
         Streams the experiment archive from the server into a temporary directory, validates it
         against the run's ``ExperimentDefinition``, and copies it to ``self.archive_path``. The
         archive persists there until the next dispatch overwrites it.
 
-        Returns:
-            Run | None: The run to execute, or ``None`` if the server has no work available.
-
         Raises:
             HTTPStatusError: If the server returns a non-2xx response.
             ArchiveValidationError: If the received archive does not match the run's definition.
+                The run is stored on ``self.working`` with failure state set before raising,
+                so that the caller can report the error to the server.
             zipfile.BadZipFile: If the received archive is not a valid ZIP file.
+                Same ``self.working`` semantics as ``ArchiveValidationError``.
             OSError: If writing the archive to disk fails.
         """
         logger.debug("Have no work to do, asking the server...")
@@ -200,7 +202,7 @@ class Worker:
 
             if response.status_code == HTTPStatus.NO_CONTENT:
                 logger.debug("Server has no work for us.")
-                return None
+                return
 
             run = Run.model_validate_json(response.headers["X-Run"], strict=True)
             logger.debug("Received run: %s", run.run_id)
@@ -213,14 +215,23 @@ class Worker:
                         await to_thread(f.write, chunk)
 
                 logger.debug("Validating Experiment archive")
-                await to_thread(
-                    run.definition.validate_archive, archive_path=archive_path
-                )
-                # TODO: tell the server if the archive failed validation
+                try:
+                    await to_thread(
+                        run.definition.validate_archive, archive_path=archive_path
+                    )
+                except (ArchiveValidationError, BadZipFile):
+                    logger.exception("Archive validation failed")
+                    run.active_state = ActiveState.FINISHED
+                    run.success_state = SuccessState.FAILED
+                    run.failure_reason = FailureReason.BAD_ARCHIVE
+                    run.finished_running = time()
+                    self.working = run
+                    raise
+
                 logger.debug("Archive validated successfully, saving it for execution")
                 await to_thread(copy, archive_path, self.archive_path)
 
-        return run
+        self.working = run
 
     async def execute_run(self) -> FailureReason | None:
         """Execute the current run.
@@ -435,6 +446,32 @@ class Worker:
         """
         logger.debug("Adding result %s as %s", name_local, name_archive)
         await to_thread(add_path_to_archive, zf, name_local, name_archive)
+
+    async def report_error(self) -> None:
+        """Report a run error to the server without a results archive.
+
+        Used when a run fails before any results could be collected (e.g. archive
+        validation failure).
+
+        Raises:
+            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
+            HTTPStatusError: If the server returns a non-2xx response.
+        """
+        if self.working is None:
+            raise NoRunError
+
+        logger.info(
+            "Reporting error for run %s: %s",
+            self.working.run_id,
+            self.working.failure_reason,
+        )
+        response = await self.http_client.post(
+            "/runs/error",
+            params={"wid": self.meta_data.wid},
+            data={"run": self.working.model_dump_json()},
+        )
+        response.raise_for_status()
+        logger.debug("Error reported successfully")
 
     async def upload_results(self) -> None:
         """Upload the results archive for the current run to the server.

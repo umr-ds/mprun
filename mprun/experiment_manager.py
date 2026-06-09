@@ -349,6 +349,55 @@ class ExperimentManager:
                         self._runs.pop(finished_run.run_id, None)
                 logger.info("Experiment finished and evicted: eid=%d", experiment.eid)
 
+    async def record_run_failure(self, run: Run) -> None:
+        """Record a run failure without a results archive.
+
+        Updates the run and experiment states in-memory and persists to the database.
+        Used when a worker encounters an error before any results could be collected
+        (e.g. archive validation failure).
+
+        Args:
+            run (Run): The failed run, with ``active_state``, ``success_state``, and
+                ``failure_reason`` already set by the worker.
+
+        Raises:
+            NoSuchRunError: If the run is not tracked by this manager.
+            NoSuchExperimentError: If the parent experiment is not tracked.
+        """
+        async with self._state_mutex:
+            if run.run_id not in self._runs:
+                logger.error(
+                    "Record failure for Run %s failed: no such Run", run.run_id
+                )
+                raise NoSuchRunError(run_id=run.run_id)
+            if run.eid not in self._experiments:
+                logger.error(
+                    "Record failure for Run %s failed: no experiment %d",
+                    run.run_id,
+                    run.eid,
+                )
+                raise NoSuchExperimentError(eid=run.eid)
+
+            experiment = self._experiments[run.eid]
+            experiment.runs[run.index][run.iteration] = run
+            self._runs[run.run_id] = run
+
+            experiment.recalculate_state()
+            await self._update(experiment=experiment)
+
+            logger.info(
+                "Run failure recorded: rid=%s reason=%s",
+                run.run_id,
+                run.failure_reason,
+            )
+
+            if not experiment.active:
+                del self._experiments[experiment.eid]
+                for runs in experiment.runs:
+                    for finished_run in runs:
+                        self._runs.pop(finished_run.run_id, None)
+                logger.info("Experiment finished and evicted: eid=%d", experiment.eid)
+
     async def get_run_results(self, rid: RunId) -> Path:
         """Return the path to a run's results archive.
 

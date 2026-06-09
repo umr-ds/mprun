@@ -14,7 +14,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.custom_types import ActiveState, SuccessState
+from mprun.custom_types import ActiveState, FailureReason, SuccessState
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -598,3 +598,90 @@ class TestRuns:
                 assert response.headers["content-type"] == "application/zip"
                 with zipfile.ZipFile(BytesIO(response.content)) as zf:
                     assert "result.txt" in zf.namelist()
+
+    def test_run_error_submission(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /runs/error persists a failed run state without results archive."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment()
+            archive_path = definition.create_archive(
+                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+            )
+
+            with TestClient(server) as client, archive_path.open("rb") as archive_file:
+                response = client.post(
+                    "/experiments",
+                    data={"experiment_definition": definition.model_dump_json()},
+                    files={
+                        "archive": (
+                            EXPERIMENT_ARCHIVE_NAME,
+                            archive_file,
+                            "application/zip",
+                        )
+                    },
+                )
+                response.raise_for_status()
+
+                response = client.post("/workers", params={"name": "testworker"})
+                response.raise_for_status()
+                worker = WorkerData.model_validate(response.json())
+
+                response = client.get("/runs/dispatch", params={"wid": worker.wid})
+                response.raise_for_status()
+
+                run = Run.model_validate_json(response.headers["X-Run"], strict=True)
+
+                run.active_state = ActiveState.FINISHED
+                run.success_state = SuccessState.FAILED
+                run.failure_reason = FailureReason.BAD_ARCHIVE
+
+                response = client.post(
+                    "/runs/error",
+                    params={"wid": worker.wid},
+                    data={"run": run.model_dump_json()},
+                )
+                assert response.status_code == HTTPStatus.OK
+
+                response = client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
+                response.raise_for_status()
+                submitted_run = Run.model_validate(response.json())
+                assert submitted_run.active_state == ActiveState.FINISHED
+                assert submitted_run.success_state == SuccessState.FAILED
+                assert submitted_run.failure_reason == FailureReason.BAD_ARCHIVE
+
+    def test_run_error_unknown_worker(
+        self,
+        tmp_path: Path,
+        make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+    ) -> None:
+        """POST /runs/error with an unknown wid returns 404."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            definition, directory = make_experiment()
+            archive_path = _build_archive(definition, directory)
+
+            with TestClient(server) as client:
+                _post_experiment(client, definition, archive_path)
+                worker = _register_worker(client)
+
+                response = client.get("/runs/dispatch", params={"wid": worker.wid})
+                response.raise_for_status()
+                run = Run.model_validate_json(response.headers["X-Run"], strict=True)
+                run.active_state = ActiveState.FINISHED
+                run.success_state = SuccessState.FAILED
+                run.failure_reason = FailureReason.BAD_ARCHIVE
+
+                response = client.post(
+                    "/runs/error",
+                    params={"wid": 99999},
+                    data={"run": run.model_dump_json()},
+                )
+                assert response.status_code == HTTPStatus.NOT_FOUND
