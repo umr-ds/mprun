@@ -16,6 +16,7 @@ from mprun.client.client import (
     delete_experiment,
     download_run_results,
     get_experiment_results_parallel,
+    reset_run,
     submit_experiment,
 )
 from mprun.client.tui import run_tui
@@ -268,6 +269,41 @@ def get_run_results(
         echo(f"No results for run {run_id!r}", err=True)
         raise Exit(1)
     echo(f"Saved to {dest}")
+
+
+@client.command(
+    "reset", help="Reset a run: delete results and return to WAITING state."
+)
+def reset_run_cmd(
+    run_id: str = Argument(help="Run ID (e.g. 12345678-0-0)"),
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+) -> None:
+    """Reset a run: delete its results and return it to WAITING state."""
+    try:
+        rid = RunId.from_str(run_id)
+    except ValueError as err:
+        echo(
+            f"Invalid run ID {run_id!r}: expected {{eid}}-{{index}}-{{iteration}}",
+            err=True,
+        )
+        raise Exit(1) from err
+
+    try:
+        with _client_factory(base_url) as http:
+            run = reset_run(
+                http_client=http,
+                rid=rid,
+            )
+    except HTTPStatusError as err:
+        if err.response.status_code == codes.NOT_FOUND:
+            echo(f"No run {run_id!r}", err=True)
+        else:
+            echo(f"HTTP error {err.response.status_code}: {err}", err=True)
+        raise Exit(1) from err
+
+    echo(f"Reset run {run_id!r} → {run.active_state} / {run.success_state}")
 
 
 @client.command("get-results", help="Download results for all runs in an experiment.")

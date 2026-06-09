@@ -26,8 +26,10 @@ from mprun.client.client import (
     delete_experiment,
     download_run_results,
     get_experiment_results_parallel,
+    reset_run,
     submit_experiment,
 )
+from mprun.custom_types import RunId
 from mprun.models import Experiment, ExperimentDefinition, ValidationMode
 
 REFRESH_TIME: float = 30.0
@@ -117,6 +119,44 @@ class ConfirmDownloadDialogue(ModalScreen[bool]):
         self.dismiss(confirmed)
 
 
+class ConfirmResetDialogue(ModalScreen[bool]):
+    """Confirmation dialogue for run reset."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("y", "confirm", "Yes"),
+        ("n", "cancel", "No"),
+        ("escape", "cancel", "No"),
+    ]
+
+    def __init__(self, run_name: str) -> None:
+        """Initialise dialogue.
+
+        Args:
+            run_name: Display name of the run to reset.
+        """
+        super().__init__()
+        self.run_name = run_name
+
+    @override
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        with Vertical(id="confirm-dialog"):
+            yield Static(
+                f"Reset [bold]{self.run_name}[/bold]? Results will be permanently deleted.\n\n"
+                "[bold][y][/bold][u]Y[/u]es[bold]/[n][/bold][u]N[/u]o"
+            )
+
+    def action_confirm(self) -> None:
+        """Confirm reset."""
+        confirmed: bool = True
+        self.dismiss(confirmed)
+
+    def action_cancel(self) -> None:
+        """Cancel reset."""
+        confirmed: bool = False
+        self.dismiss(confirmed)
+
+
 class DetailView(Screen[None]):
     """Detail-View: runs of a single experiment."""
 
@@ -124,8 +164,9 @@ class DetailView(Screen[None]):
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("escape", "dismiss", "Back"),
-        ("r", "refresh", "Refresh now"),
-        ("d", "download", "Download results"),
+        ("ctrl+r", "refresh", "Refresh"),
+        ("d", "download", "Download"),
+        ("r", "reset", "Reset"),
     ]
 
     def __init__(self, base_url: str, eid: int) -> None:
@@ -265,6 +306,44 @@ class DetailView(Screen[None]):
         """Refresh immediately."""
         self.call_later(self._refresh)
 
+    def action_reset(self) -> None:
+        """Prompt for confirmation then reset the selected run."""
+        lv = self.query_one("#run-list", ListView)
+        idx = lv.index
+        if idx is None or idx >= len(self._runs):
+            return
+        run = self._runs[idx]
+        exp_name = run.get("definition", {}).get("name", "?")
+        run_name = f"{exp_name}-{run['index']}-{run['iteration']}"
+
+        def on_confirm(result: object) -> None:
+            if result:
+                self.call_later(self._do_reset, run)
+
+        self.app.push_screen(ConfirmResetDialogue(run_name), on_confirm)
+
+    async def _do_reset(self, run: dict[str, Any]) -> None:
+        """Reset the run via the server and refresh the view."""
+        rid = RunId(eid=run["eid"], index=run["index"], iteration=run["iteration"])
+
+        def _sync_reset() -> None:
+            with httpx.Client(base_url=self.base_url) as client:
+                reset_run(client, rid)
+
+        try:
+            await asyncio.to_thread(_sync_reset)
+        except httpx.HTTPStatusError as err:
+            self.notify(
+                f"Reset failed: HTTP {err.response.status_code}", severity="error"
+            )
+            return
+        except httpx.RequestError as err:
+            self.notify(f"Reset failed: {err}", severity="error")
+            return
+
+        self.notify(f"Reset {run['index']}-{run['iteration']}")
+        await self._refresh()
+
 
 class OverViewScreen(Screen[None]):
     """Over-View: browsable list of all experiments."""
@@ -272,11 +351,11 @@ class OverViewScreen(Screen[None]):
     TITLE = "Over-View"
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
-        ("ctrl+r", "refresh", "Refresh now"),
-        ("d", "download", "Download results"),
+        ("ctrl+r", "refresh", "Refresh"),
+        ("d", "download", "Download"),
         ("f", "search", "Find"),
         ("c", "create", "Create-Mode"),
-        ("r", "remove", "Remove"),
+        ("backspace", "remove", "Remove"),
     ]
 
     def __init__(self, base_url: str) -> None:

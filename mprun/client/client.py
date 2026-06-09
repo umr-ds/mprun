@@ -8,7 +8,8 @@ from pathlib import Path
 from httpx import Client, HTTPStatusError, codes
 from typer import echo
 
-from mprun.models import Experiment, ExperimentDefinition, ValidationMode
+from mprun.custom_types import RunId
+from mprun.models import Experiment, ExperimentDefinition, Run, ValidationMode
 
 DEFAULT_URL = "http://localhost:8000"
 
@@ -200,3 +201,25 @@ def delete_experiment(
             500 if the server fails to remove the experiment data from disk).
     """
     http_client.delete(f"/experiments/{eid}").raise_for_status()
+
+
+def reset_run(
+    http_client: Client,
+    rid: RunId,
+) -> Run:
+    """Reset a run: delete its results and return it to WAITING state.
+
+    Args:
+        http_client (Client): HTTP client to use for the request.
+        rid (RunId): Composite run identity.
+
+    Returns:
+        Run: The reset run with WAITING/PENDING state.
+
+    Raises:
+        HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found).
+    """
+    resp = http_client.post(
+        f"/runs/{rid.eid}/{rid.index}/{rid.iteration}/reset"
+    ).raise_for_status()
+    return Run.model_validate(resp.json())

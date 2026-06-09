@@ -9,7 +9,7 @@ _FMT = "%(asctime)s %(levelname)s:%(name)-24s: \x00%(message)s"
 
 
 class ColorFormatter(logging.Formatter):
-    """Logging formatter that colors each line by level and renders the message in white."""
+    """Logging formatter that colours each line by level and renders the message in white."""
 
     _COLORS: ClassVar[dict[int, str]] = {
         logging.DEBUG: "\033[90m",
