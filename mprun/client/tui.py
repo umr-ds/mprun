@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, override
 
@@ -41,6 +41,15 @@ def _fmt_ts(ts: float | None) -> str:
     return (
         datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     )
+
+
+def _fmt_duration(started: float | None, finished: float | None) -> str:
+    if started is None or finished is None:
+        return "—"
+    delta = finished - started
+    if delta < 0:
+        return "—"
+    return str(timedelta(seconds=int(delta)))
 
 
 class ConfirmDeleteDialogue(ModalScreen[bool]):
@@ -235,6 +244,12 @@ class DetailView(Screen[None]):
             return
 
         wid = run.get("wid")
+        failure_reason = run.get("failure_reason")
+        failure_line = (
+            f"[dim]Failure:[/dim]    [red]{failure_reason}[/red]\n"
+            if failure_reason
+            else ""
+        )
         params = run.get("params", {})
         params_lines = "\n".join(f"  {k}: {v}" for k, v in params.items())
         name = f"{exp_name}-{run['index']}-{run['iteration']}"
@@ -245,8 +260,10 @@ class DetailView(Screen[None]):
             f"[dim]Iteration:[/dim]  {run['iteration']}\n"
             f"[dim]Active:[/dim]     {run['active_state']}\n"
             f"[dim]Success:[/dim]    {run['success_state']}\n"
+            f"{failure_line}"
             f"[dim]Started:[/dim]    {_fmt_ts(run.get('started_running'))}\n"
             f"[dim]Finished:[/dim]   {_fmt_ts(run.get('finished_running'))}\n"
+            f"[dim]Runtime:[/dim]    {_fmt_duration(run.get('started_running'), run.get('finished_running'))}\n"
             f"[dim]Worker:[/dim]     {wid if wid is not None else 'none'}\n"
             f"\n[dim]Parameters:[/dim]\n{params_lines}"
         )
@@ -508,6 +525,7 @@ class OverViewScreen(Screen[None]):
             f"[dim]Created:[/dim]      {_fmt_ts(experiment.creation_timestamp)}\n"
             f"[dim]Started:[/dim]      {_fmt_ts(experiment.started_running)}\n"
             f"[dim]Finished:[/dim]     {_fmt_ts(experiment.finished_running)}\n"
+            f"[dim]Runtime:[/dim]      {_fmt_duration(experiment.started_running, experiment.finished_running)}\n"
             f"[dim]Runs:[/dim]         {total_runs}\n"
             f"[dim]Iterations:[/dim]   {defn.iterations}\n"
             f"[dim]Executable:[/dim]   {defn.executable}\n"

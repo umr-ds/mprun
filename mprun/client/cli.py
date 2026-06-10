@@ -2,6 +2,7 @@
 
 """CLI client for interacting with the server."""
 
+from datetime import UTC, datetime, timedelta
 from lzma import LZMAError
 from pathlib import Path
 
@@ -25,6 +26,23 @@ from mprun.models import Experiment
 
 console = Console()
 client = Typer(no_args_is_help=False)
+
+
+def _fmt_ts(ts: float | None) -> str:
+    if ts is None:
+        return "—"
+    return (
+        datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    )
+
+
+def _fmt_duration(started: float | None, finished: float | None) -> str:
+    if started is None or finished is None:
+        return "—"
+    delta = finished - started
+    if delta < 0:
+        return "—"
+    return str(timedelta(seconds=int(delta)))
 
 
 def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:
@@ -53,32 +71,73 @@ def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:
 
 def _print_experiments(experiments: list[Experiment]) -> None:
     """Print a summary table of multiple experiments to the console."""
-    table = Table("Name", "ID", "Active", "Success")
+    table = Table("Name", "ID", "Active", "Success", "Created", "Runtime", "Runs")
     for experiment in experiments:
         table.add_row(
             experiment.name,
             str(experiment.eid),
             experiment.active_state,
             experiment.success_state,
+            _fmt_ts(experiment.creation_timestamp),
+            _fmt_duration(experiment.started_running, experiment.finished_running),
+            str(sum(len(inner) for inner in experiment.runs)),
         )
     console.print(table)
 
 
 def _print_experiment(experiment: Experiment) -> None:
     """Print a detailed view of a single experiment and its runs to the console."""
-    table = Table("Name", "ID", "Active", "Success", title="Experiment")
+    total_runs = sum(len(inner) for inner in experiment.runs)
+
+    table = Table(
+        "Name",
+        "ID",
+        "Active",
+        "Success",
+        "Created",
+        "Started",
+        "Finished",
+        "Runtime",
+        "Runs",
+        title="Experiment",
+    )
     table.add_row(
         experiment.name,
         str(experiment.eid),
         experiment.active_state,
         experiment.success_state,
+        _fmt_ts(experiment.creation_timestamp),
+        _fmt_ts(experiment.started_running),
+        _fmt_ts(experiment.finished_running),
+        _fmt_duration(experiment.started_running, experiment.finished_running),
+        str(total_runs),
     )
     console.print(table)
 
-    table = Table("ID", "Active", "Success", title="Runs")
+    table = Table(
+        "ID",
+        "Active",
+        "Success",
+        "Started",
+        "Finished",
+        "Runtime",
+        "Worker",
+        title="Runs",
+    )
     for runs in experiment.runs:
         for run in runs:
-            table.add_row(str(run.run_id), run.active_state, run.success_state)
+            failure = (
+                f" [red]({run.failure_reason})[/red]" if run.failure_reason else ""
+            )
+            table.add_row(
+                str(run.run_id),
+                run.active_state,
+                f"{run.success_state}{failure}",
+                _fmt_ts(run.started_running),
+                _fmt_ts(run.finished_running),
+                _fmt_duration(run.started_running, run.finished_running),
+                str(run.wid) if run.wid is not None else "—",
+            )
     console.print(table)
 
 
