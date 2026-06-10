@@ -20,7 +20,6 @@ from zipfile import ZIP_LZMA, BadZipFile, ZipFile
 from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
 
-from mprun import SERVER_ADDRESS_ENV
 from mprun.custom_types import ActiveState, FailureReason, SuccessState
 from mprun.errors import ArchiveValidationError, NoRunError
 from mprun.log import configure_logging
@@ -30,12 +29,14 @@ from mprun.models import (
     WorkerData,
     add_path_to_archive,
 )
+from mprun.worker.config import (
+    load_worker_config,
+    resolve_worker_config_path,
+)
 
 logger = logging.getLogger(__name__)
 cli = Typer()
 
-WORKER_NAME_ENV = "MPRUN_WORKER_NAME"
-WORKER_HOME_DIR = "MPRUN_WORKER_DIRECTORY"
 RESULTS_ARCHIVE_NAME = "results.zip"
 SLEEP_TIME = 60
 
@@ -541,55 +542,38 @@ async def _run(server_address: str, name: str, home_directory: Path) -> None:
 
 @cli.command()
 def main(
-    verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
-    server_address: str | None = Option(
+    config: Path | None = Option(
         None,
-        "--server-address",
-        "-s",
-        envvar=SERVER_ADDRESS_ENV,
-        help=f"Server address. Falls back to ${SERVER_ADDRESS_ENV}.",
-    ),
-    name: str | None = Option(
-        None,
-        "--name",
-        "-n",
-        envvar=WORKER_NAME_ENV,
-        help=f"Worker name. Falls back to ${WORKER_NAME_ENV}.",
-    ),
-    home_directory: Path | None = Option(
-        None,
-        "--home-directory",
-        "-d",
-        envvar=WORKER_HOME_DIR,
-        help=f"Worker home directory. Falls back to ${WORKER_HOME_DIR}.",
+        "--config",
+        "-c",
+        help=(
+            "Path to TOML config file. "
+            "Defaults to user and site config dirs (see platformdirs)."
+        ),
     ),
 ) -> None:
     """Start the worker daemon.
 
-    CLI arguments take precedence over environment variables (``MPRUN_SERVER_ADDRESS``,
-    ``MPRUN_WORKER_NAME``, ``MPRUN_WORKER_DIRECTORY``).
+    All settings are read from a TOML config file. Use ``-c`` to provide
+    a path; otherwise the default locations are checked.
     """
-    log_level = logging.DEBUG if verbose else logging.INFO
-    configure_logging(log_level)
-
-    if server_address is None:
+    cfg_path = resolve_worker_config_path(config)
+    if cfg_path is None:
         logger.critical(
-            "Server address not set. Use --server-address or $%s.", SERVER_ADDRESS_ENV
+            "No config file found. "
+            "Use --config or place a worker.toml in the default location."
         )
         raise Exit(1)
 
-    if name is None:
-        logger.critical("Worker name not set. Use --name or $%s.", WORKER_NAME_ENV)
-        raise Exit(1)
-
-    if home_directory is None:
-        logger.critical(
-            "Home directory not set. Use --home-directory or $%s.", WORKER_HOME_DIR
-        )
-        raise Exit(1)
+    cfg = load_worker_config(cfg_path)
+    configure_logging(cfg.log_level)
 
     asyncio.run(
-        _run(server_address=server_address, name=name, home_directory=home_directory)
+        _run(
+            server_address=cfg.server_address,
+            name=cfg.name,
+            home_directory=cfg.home_directory,
+        )
     )
 
 

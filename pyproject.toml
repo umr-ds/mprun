@@ -37,6 +37,7 @@ dependencies = [
     "typer~=0.26.7",
     "tomlkit~=0.15.0",
     "pytimeparse2~=1.7.1",
+    "platformdirs~=4.10.0",
 ]
 
 [dependency-groups]
@@ -45,7 +46,6 @@ server = [
     "fastapi~=0.136.3",
     "tinydb~=4.8.2",
     "python-multipart~=0.0.32",
-    "platformdirs~=4.10.0",
 ]
 client = [
     "httpx~=0.28.1",
@@ -72,7 +72,7 @@ Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 [project.scripts]
 mprun_client = "mprun.client.cli:client"
 mprun_server = "mprun.server:cli"
-mprun_worker = "mprun.worker:cli"
+mprun_worker = "mprun.worker.worker:cli"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -171,7 +171,7 @@ ignore = [
 "mprun/server.py" = [
     "FBT", # that's just how CLI flags work...
 ]
-"mprun/worker.py" = [
+"mprun/worker/worker.py" = [
     "FBT", # that's just how CLI flags work...
 ]
 

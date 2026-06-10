@@ -31,7 +31,7 @@ from mprun.models import (
     WorkerData,
 )
 from mprun.server import DATA_PATH_ENV, lifespan, server
-from mprun.worker import RESULTS_ARCHIVE_NAME, Worker
+from mprun.worker.worker import RESULTS_ARCHIVE_NAME, Worker
 from tests.conftest import copy_experiment_to_test_environment
 
 

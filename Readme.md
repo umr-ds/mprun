@@ -33,17 +33,38 @@ CLI arguments take precedence over environment variables. `--host` and `--port` 
 
 ### Worker
 
+The worker reads all settings from a TOML config file.
+
 ```bash
-mprun_worker [-s ADDRESS] [-n NAME] [-d DIR] [-v]
+mprun_worker [-c CONFIG]
 ```
 
-CLI arguments take precedence over environment variables. All three are required (via either source):
+| CLI argument    | Description                                                  |
+|:----------------|:-------------------------------------------------------------|
+| `-c`/`--config` | Path to TOML config file. Defaults to platform config dirs.  |
 
-| CLI argument              | Environment variable     | Effect                              |
-|:--------------------------|:-------------------------|:------------------------------------|
-| `-s` / `--server-address` | `MPRUN_SERVER_ADDRESS`   | Address of the server               |
-| `-n` / `--name`           | `MPRUN_WORKER_NAME`      | Human-readable name for this worker |
-| `-d` / `--home-directory` | `MPRUN_WORKER_DIRECTORY` | Working directory for run execution |
+Config file locations (checked in order):
+
+- `$XDG_CONFIG_HOME/mprun/worker.toml` (`~/.config/mprun/worker.toml`)
+- `/etc/xdg/mprun/worker.toml` (site-wide, per platformdirs)
+
+**Config fields:**
+
+| Field              | Required | Description                                                         |
+|:-------------------|---------:|:--------------------------------------------------------------------|
+| `server_address`   |      yes | Address of the server (e.g. `"localhost:8000"`)                     |
+| `name`             |      yes | Human-readable name for this worker                                 |
+| `home_directory`   |      yes | Working directory for run execution                                 |
+| `log_level`        |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"` |
+
+Example:
+
+```toml
+server_address = "localhost:8000"
+name = "gpu-node-1"
+home_directory = "/var/lib/mprun/worker"
+log_level = "INFO"
+```
 
 ### Client
 
@@ -62,6 +83,7 @@ Run without a subcommand to open the interactive TUI. Pass a subcommand for non-
 | `create <file.toml> [-u URL] [-j]`               | Submit experiment from TOML file               |
 | `delete <eid> [-u URL] [-y]`                     | Delete experiment (prompts unless `-y`)        |
 | `results <eid>-<index>-<iter> [-o DIR] [-u URL]` | Download single run's result archive           |
+| `reset <eid>-<index>-<iter> [-u URL]`            | Reset a run (delete results, set to WAITING)   |
 | `get-results <eid> [-o DIR] [-u URL]`            | Download all result archives for an experiment |
 
 `-u` / `--base-url` overrides `MPRUN_SERVER_ADDRESS` (default `http://localhost:8000`).
@@ -77,25 +99,26 @@ The TUI has three screens: **Over-View**, **Detail-View**, and **Create-Mode**.
 
 ##### Over-View (experiment list)
 
-| Key       | Action                                                           |
-|:----------|:-----------------------------------------------------------------|
-| `↑` / `↓` | Navigate experiments                                             |
-| `Enter`   | Open Detail-View for selected experiment                         |
-| `f`       | Enter search mode (fuzzy-match by name; `Escape` to exit)        |
-| `d`       | Download all results for selected experiment into `<cwd>/<eid>/` |
-| `r`       | Delete selected experiment (confirmation required)               |
-| `c`       | Switch to Create-Mode                                            |
-| `Ctrl+R`  | Refresh list now (auto-refreshes every 30 s)                     |
-| `q`       | Quit                                                             |
+| Key          | Action                                                           |
+|:-------------|:-----------------------------------------------------------------|
+| `↑` / `↓`    | Navigate experiments                                             |
+| `Enter`      | Open Detail-View for selected experiment                         |
+| `f`          | Enter search mode (fuzzy-match by name; `Escape` to exit)        |
+| `d`          | Download all results for selected experiment into `<cwd>/<eid>/` |
+| `Backspace`  | Delete selected experiment (confirmation required)               |
+| `c`          | Switch to Create-Mode                                            |
+| `Ctrl+R`     | Refresh list now (auto-refreshes every 30 s)                     |
+| `q`          | Quit                                                             |
 
 ##### Detail-View (runs of one experiment)
 
-| Key       | Action                                                      |
-|:----------|:------------------------------------------------------------|
-| `↑` / `↓` | Navigate runs                                               |
-| `d`       | Download selected run's result archive to current directory |
-| `r`       | Refresh now                                                 |
-| `Escape`  | Back to Over-View                                           |
+| Key        | Action                                                      |
+|:-----------|:------------------------------------------------------------|
+| `↑` / `↓`  | Navigate runs                                               |
+| `d`        | Download selected run's result archive to current directory |
+| `r`        | Reset selected run (delete results, return to WAITING)      |
+| `Ctrl+R`   | Refresh now                                                 |
+| `Escape`   | Back to Over-View                                           |
 
 ##### Create-Mode (three-pane file explorer)
 
