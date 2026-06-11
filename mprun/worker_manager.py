@@ -1,29 +1,66 @@
 """Worker registration and state tracking."""
 
-from asyncio import Lock
+from asyncio import Lock, to_thread
+from pathlib import Path
 from time import time
 from uuid import uuid4
+
+from tinydb import Query, TinyDB
+from tinydb.table import Table
 
 from mprun.custom_types import RunId
 from mprun.errors import NoSuchRunError, NoSuchWorkerError
 from mprun.models import WorkerData, WorkerState
 
+WORKER_TIMEOUT = 600  # timeout is 600s (10 minutes)
+
 
 class WorkerManager:
-    """Tracks registered workers and their run assignments. In-memory only; not persisted.
+    """Tracks registered workers and their run assignments.
 
     Attributes:
-        workers (dict[int, WorkerData]): Registered workers keyed by worker ID.
-        _state_mutex (Lock): Guards ``workers`` against concurrent modification.
+        _data_path (Path): Root directory for all persisted data.
+        _db (TinyDB): TinyDB database storing worker metadata.
+        _state_mutex (Lock): Guards against concurrent modification.
+        _workers (dict[int, WorkerData]): Registered workers keyed by worker ID.
     """
 
-    workers: dict[int, WorkerData]
+    _data_path: Path
+    _db: TinyDB
     _state_mutex: Lock
 
-    def __init__(self) -> None:
+    _workers: dict[int, WorkerData]
+
+    def __init__(self, data_path: Path) -> None:
         """Initialise WorkerManager."""
-        self.workers = {}
+        data_path.mkdir(parents=True, exist_ok=True)
+        self._data_path = data_path
+        self._db = TinyDB(data_path / "db.json")
         self._state_mutex = Lock()
+
+        docs = self._workers_table.all()
+        workers = [WorkerData.model_validate(doc) for doc in docs]
+        self._workers = {worker.wid: worker for worker in workers}
+
+    @property
+    def _workers_table(self) -> Table:
+        return self._db.table("workers")
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self._db.close()
+
+    async def _update(self, worker_data: WorkerData) -> None:
+        """Persist the current state of a worker to the database.
+
+        **Not thread-safe.** Caller must hold ``_state_mutex`` before calling.
+        """
+        update = Query()
+        await to_thread(
+            self._workers_table.update,
+            worker_data.model_dump(),
+            update.wid == worker_data.wid,
+        )
 
     async def get_all(self) -> list[WorkerData]:
         """Return all registered workers.
@@ -32,7 +69,8 @@ class WorkerManager:
             list[WorkerData]: Snapshot of all currently registered workers.
         """
         async with self._state_mutex:
-            return list(self.workers.values())
+            docs = await to_thread(self._workers_table.all)
+            return [WorkerData.model_validate(doc) for doc in docs]
 
     async def register(self, name: str) -> WorkerData:
         """Register a new worker and return its metadata.
@@ -49,10 +87,11 @@ class WorkerManager:
             worker = WorkerData.new(name=name)
 
             # just in case we happen to roll a UUID that already exists
-            while worker.wid in self.workers:
+            while worker.wid in self._workers:
                 worker.wid = uuid4().int
 
-            self.workers[worker.wid] = worker
+            await to_thread(self._workers_table.insert, worker.model_dump())
+            self._workers[worker.wid] = worker
             return worker
 
     async def get(self, wid: int) -> WorkerData:
@@ -68,10 +107,10 @@ class WorkerManager:
             NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
-            if wid not in self.workers:
+            if wid not in self._workers:
                 raise NoSuchWorkerError(wid=wid)
 
-            return self.workers[wid]
+            return self._workers[wid]
 
     async def check_in(self, wid: int) -> None:
         """Record a worker heartbeat by updating its ``last_check_in`` timestamp.
@@ -83,10 +122,12 @@ class WorkerManager:
             NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
-            if wid not in self.workers:
+            if wid not in self._workers:
                 raise NoSuchWorkerError(wid=wid)
 
-            self.workers[wid].last_check_in = time()
+            worker = self._workers[wid]
+            worker.last_check_in = time()
+            await self._update(worker_data=worker)
 
     async def assign_run(self, wid: int, run_id: RunId) -> None:
         """Assign a run to a worker and set its state to WORKING.
@@ -99,12 +140,13 @@ class WorkerManager:
             NoSuchWorkerError: If no worker with that ID is registered.
         """
         async with self._state_mutex:
-            if wid not in self.workers:
+            if wid not in self._workers:
                 raise NoSuchWorkerError(wid=wid)
 
-            worker = self.workers[wid]
+            worker = self._workers[wid]
             worker.state = WorkerState.WORKING
             worker.run = run_id
+            await self._update(worker_data=worker)
 
     async def unassign_run(self, wid: int, run_id: RunId, state: WorkerState) -> None:
         """Clear a worker's run assignment and transition it to a new state.
@@ -122,12 +164,13 @@ class WorkerManager:
             NoSuchRunError: If the worker's current run does not match ``run_id``.
         """
         async with self._state_mutex:
-            if wid not in self.workers:
+            if wid not in self._workers:
                 raise NoSuchWorkerError(wid=wid)
 
-            worker = self.workers[wid]
+            worker = self._workers[wid]
             if worker.run != run_id:
                 raise NoSuchRunError(run_id=run_id)
 
             worker.state = state
             worker.run = None
+            await self._update(worker_data=worker)

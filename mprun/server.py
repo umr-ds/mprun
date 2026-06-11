@@ -45,6 +45,9 @@ DATA_PATH_ENV = "MPRUN_DATA_PATH"
 HOST_ENV = "MPRUN_SERVER_HOST"
 PORT_ENV = "MPRUN_SERVER_PORT"
 
+EXPERIMENT_DATA_PATH = "experiments"
+WORKER_DATA_PATH = "workers"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -56,12 +59,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         data_path = Path(data_path_str)
 
     logger.info("Starting server in %s", data_path)
-    app.state.experiment_manager = ExperimentManager(data_path=data_path)
-    app.state.worker_manager = WorkerManager()
+    app.state.experiment_manager = ExperimentManager(
+        data_path=data_path / EXPERIMENT_DATA_PATH
+    )
+    app.state.worker_manager = WorkerManager(data_path=data_path / WORKER_DATA_PATH)
     try:
         yield
     finally:
         app.state.experiment_manager.close()
+        app.state.worker_manager.close()
 
 
 server = FastAPI(
