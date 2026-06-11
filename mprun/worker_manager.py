@@ -1,5 +1,7 @@
 """Worker registration and state tracking."""
 
+import asyncio
+import logging
 from asyncio import Lock, to_thread
 from pathlib import Path
 from time import time
@@ -12,7 +14,10 @@ from mprun.custom_types import RunId
 from mprun.errors import NoSuchRunError, NoSuchWorkerError
 from mprun.models import WorkerData, WorkerState
 
+logger = logging.getLogger(__name__)
+
 WORKER_TIMEOUT = 600  # timeout is 600s (10 minutes)
+WORKER_GC_INTERVAL = 60  # run garbage collector every 60s
 
 
 class WorkerManager:
@@ -23,6 +28,7 @@ class WorkerManager:
         _db (TinyDB): TinyDB database storing worker metadata.
         _state_mutex (Lock): Guards against concurrent modification.
         _workers (dict[int, WorkerData]): Registered workers keyed by worker ID.
+        _gc_task (asyncio.Task[None]): Background task that periodically evicts stale workers.
     """
 
     _data_path: Path
@@ -30,6 +36,7 @@ class WorkerManager:
     _state_mutex: Lock
 
     _workers: dict[int, WorkerData]
+    _gc_task: asyncio.Task[None]
 
     def __init__(self, data_path: Path) -> None:
         """Initialise WorkerManager."""
@@ -42,12 +49,15 @@ class WorkerManager:
         workers = [WorkerData.model_validate(doc) for doc in docs]
         self._workers = {worker.wid: worker for worker in workers}
 
+        self._gc_task = asyncio.create_task(self._gc_loop())
+
     @property
     def _workers_table(self) -> Table:
         return self._db.table("workers")
 
     def close(self) -> None:
-        """Close the database connection."""
+        """Close the database connection and stop the garbage collector."""
+        self._gc_task.cancel()
         self._db.close()
 
     async def _update(self, worker_data: WorkerData) -> None:
@@ -63,7 +73,7 @@ class WorkerManager:
         )
 
     async def get_all(self) -> list[WorkerData]:
-        """Return all registered workers.
+        """Return all registered workers (both dead and alive).
 
         Returns:
             list[WorkerData]: Snapshot of all currently registered workers.
@@ -97,6 +107,8 @@ class WorkerManager:
     async def get(self, wid: int) -> WorkerData:
         """Return a single worker by ID.
 
+        Attempting to query a worker which has been marked as ``DEAD`` will result in an error.
+
         Args:
             wid (int): Worker ID to look up.
 
@@ -104,7 +116,7 @@ class WorkerManager:
             WorkerData: Metadata for the matching worker.
 
         Raises:
-            NoSuchWorkerError: If no worker with that ID is registered.
+            NoSuchWorkerError: If no (alive) worker with that ID is registered.
         """
         async with self._state_mutex:
             if wid not in self._workers:
@@ -174,3 +186,33 @@ class WorkerManager:
             worker.state = state
             worker.run = None
             await self._update(worker_data=worker)
+
+    async def _gc_loop(self) -> None:
+        """Background task that periodically evicts stale workers."""
+        try:
+            while True:
+                await asyncio.sleep(WORKER_GC_INTERVAL)
+                await self._collect_garbage()
+        except asyncio.CancelledError:
+            return
+
+    async def _collect_garbage(self) -> None:
+        """Scan workers and evict any whose last check-in exceeds the timeout."""
+        async with self._state_mutex:
+            now = time()
+            dead_wids = [
+                wid
+                for wid, worker in self._workers.items()
+                if now - worker.last_check_in > WORKER_TIMEOUT
+            ]  # all live workers which have exceeded the timeout
+
+            for wid in dead_wids:
+                worker = self._workers[wid]
+                worker.state = WorkerState.DEAD
+                await self._update(worker_data=worker)
+                del self._workers[wid]
+                logger.info(
+                    "Garbage-collected dead worker %d (%s)",
+                    wid,
+                    worker.name,
+                )
