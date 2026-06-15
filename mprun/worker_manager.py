@@ -14,7 +14,7 @@ from tinydb import Query, TinyDB
 from tinydb.table import Table
 
 from mprun.custom_types import RunId
-from mprun.errors import NoSuchRunError, NoSuchWorkerError
+from mprun.errors import NoSuchRunError, NoSuchWorkerError, WorkerNotDeadError
 from mprun.models import WorkerData, WorkerState
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,23 @@ class WorkerManager:
             worker_data.model_dump(),
             update.wid == worker_data.wid,
         )
+
+    async def _get_worker_from_db(self, wid: int) -> WorkerData | None:
+        """Fetch a single worker from the database by ID.
+
+        **Not thread-safe.** Caller must hold ``_state_mutex`` before calling.
+
+        Args:
+            wid (int): Worker ID to look up.
+
+        Returns:
+            WorkerData | None: The matching worker, or ``None`` if not found.
+        """
+        q = Query()
+        docs = await to_thread(self._workers_table.search, q.wid == wid)
+        if not docs:
+            return None
+        return WorkerData.model_validate(docs[0])
 
     async def get_all(self) -> list[WorkerData]:
         """Return all registered workers (both dead and alive).
@@ -196,6 +213,33 @@ class WorkerManager:
             worker.state = state
             worker.run = None
             await self._update(worker_data=worker)
+
+    async def revive(self, wid: int) -> WorkerData:
+        """Revive dead worker.
+
+        Worker may have had networking problems or other temporary problems.
+        When it comes back, we want to allow it to reconnect.
+
+        Args:
+            wid (int): Reviving worker's ID.
+
+        Raises:
+            NoSuchWorkerError: If no worker with this ID exists.
+            WorkerNotDeadError: If the worker is not actually dead.
+        """
+        async with self._state_mutex:
+            if wid in self._workers:
+                raise WorkerNotDeadError(wid=wid)
+
+            worker = await self._get_worker_from_db(wid=wid)
+            if worker is None:
+                raise NoSuchWorkerError(wid=wid)
+
+            worker.state = WorkerState.IDLE
+            worker.last_check_in = time()
+            await self._update(worker_data=worker)
+            self._workers[worker.wid] = worker
+            return worker
 
     async def _gc_loop(self) -> None:
         """Background task that periodically evicts stale workers."""

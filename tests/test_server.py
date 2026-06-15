@@ -6,6 +6,7 @@ from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -22,8 +23,10 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
     WorkerData,
+    WorkerState,
 )
 from mprun.server import DATA_PATH_ENV, server
+from mprun.worker_manager import WORKER_TIMEOUT
 
 
 def _post_experiment(
@@ -143,6 +146,53 @@ class TestWorkers:
 
                 response = client.post("/workers/check_in/99999")
                 assert response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_worker_revive(self, tmp_path: Path) -> None:
+        """POST /workers/revive/{wid} revives a dead worker."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                worker = _register_worker(client)
+
+                app = cast(Any, client.app)
+                wm = app.state.worker_manager
+                with patch("mprun.worker_manager.time") as mock_time:
+                    mock_time.return_value = worker.last_check_in + WORKER_TIMEOUT + 1
+                    await wm._collect_garbage()
+
+                response = client.post(f"/workers/revive/{worker.wid}")
+                assert response.status_code == HTTPStatus.OK
+
+                revived = WorkerData.model_validate(response.json())
+                assert revived.wid == worker.wid
+                assert revived.state == WorkerState.IDLE
+
+    @pytest.mark.asyncio
+    async def test_worker_revive_unknown(self, tmp_path: Path) -> None:
+        """POST /workers/revive/{wid} returns 404 for unknown worker."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                response = client.post("/workers/revive/99999")
+                assert response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_worker_revive_alive(self, tmp_path: Path) -> None:
+        """POST /workers/revive/{wid} returns 409 for worker that is not dead."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                worker = _register_worker(client)
+
+                response = client.post(f"/workers/revive/{worker.wid}")
+                assert response.status_code == HTTPStatus.CONFLICT
 
 
 class TestExperiments:

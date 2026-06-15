@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mprun.errors import NoSuchWorkerError
+from mprun.errors import NoSuchWorkerError, WorkerNotDeadError
 from mprun.models import WorkerData, WorkerState
 from mprun.worker_manager import WORKER_TIMEOUT, WorkerManager
 
@@ -200,3 +200,55 @@ async def test_only_stale_workers_evicted(name: str) -> None:
 
             assert live.wid in manager._workers
             assert dead.wid not in manager._workers
+
+
+@pytest.mark.asyncio
+async def test_revive_returns_worker() -> None:
+    """Revive returns the revived worker with IDLE state."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        worker = await manager.register(name="testworker")
+
+        with patch("mprun.worker_manager.time") as mock_time:
+            now = 1000.0
+            mock_time.return_value = now
+            worker.last_check_in = now - (WORKER_TIMEOUT + 1)
+            await manager._collect_garbage()
+
+        revived = await manager.revive(wid=worker.wid)
+        assert revived.wid == worker.wid
+        assert revived.state == WorkerState.IDLE
+        assert revived.name == "testworker"
+        assert revived.wid in manager._workers
+
+
+@pytest.mark.asyncio
+async def test_revive_unknown_worker() -> None:
+    """Revive raises NoSuchWorkerError for an unknown wid."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        with pytest.raises(NoSuchWorkerError):
+            await manager.revive(wid=99999)
+
+
+@pytest.mark.asyncio
+async def test_revive_alive_worker() -> None:
+    """Revive raises WorkerNotDeadError for a worker that is not dead."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        worker = await manager.register(name="testworker")
+
+        with pytest.raises(WorkerNotDeadError):
+            await manager.revive(wid=worker.wid)

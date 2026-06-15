@@ -97,3 +97,35 @@ class NoSuchWorkerError(LookupError):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Worker with ID {self.wid} does not exist!"
+
+
+@dataclass(frozen=True)
+class WorkerDeadError(Exception):
+    """Raised when trying to do something with a worker that's dead.
+
+    Attributes:
+        wid (int): Dead Worker's ID
+    """
+
+    wid: int
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Worker with ID {self.wid} is dead!"
+
+
+@dataclass(frozen=True)
+class WorkerNotDeadError(Exception):
+    """Raised when trying to revive a worker that's not actually dead.
+
+    Attributes:
+        wid (int): Not dead Worker's ID
+    """
+
+    wid: int
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Worker with ID {self.wid} is not dead!"

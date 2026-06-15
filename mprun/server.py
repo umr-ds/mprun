@@ -34,6 +34,7 @@ from mprun.errors import (
     NoSuchExperimentError,
     NoSuchRunError,
     NoSuchWorkerError,
+    WorkerNotDeadError,
 )
 from mprun.experiment_manager import ExperimentManager
 from mprun.log import configure_logging
@@ -368,6 +369,20 @@ async def check_in_worker(
         return Response(status_code=HTTPStatus.OK)
     except NoSuchWorkerError as err:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+
+
+@server.post("/workers/revive/{wid}", response_model=WorkerData)
+async def revive_worker(
+    wid: int, wm: WorkerManager = Depends(get_worker_manager)
+) -> WorkerData:
+    """Revive a dead worker, allowing it to reconnect and receive new work."""
+    logger.debug("Received worker revive request for id %d", wid)
+    try:
+        return await wm.revive(wid=wid)
+    except NoSuchWorkerError as err:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
+    except WorkerNotDeadError as err:
+        raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=str(err)) from err
 
 
 @cli.command()
