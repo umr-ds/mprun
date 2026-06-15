@@ -518,3 +518,162 @@ async def test_reset_run_clears_pending_dispatch(
     await manager.reset_run(rid=pending.run.run_id)
 
     assert pending.run.run_id not in manager._pending_dispatches
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_resets_running_run(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback resets a RUNNING run back to WAITING."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=7)
+
+    assert experiment.active_state == ActiveState.RUNNING
+
+    await manager.dead_worker_callback(wid=7)
+
+    run = manager._runs[experiment.runs[0][0].run_id]
+    assert run.active_state == ActiveState.WAITING
+    assert run.wid is None
+    assert experiment.active_state == ActiveState.WAITING
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_noop_wrong_wid(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback does nothing if no RUNNING run matches the wid."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=7)
+
+    await manager.dead_worker_callback(wid=99)
+
+    run = manager._runs[experiment.runs[0][0].run_id]
+    assert run.active_state == ActiveState.RUNNING
+    assert run.wid == 7
+    assert experiment.active_state == ActiveState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_noop_no_running_runs(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback is a no-op when no runs are RUNNING."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    await manager.dead_worker_callback(wid=7)
+
+    run = manager._runs[experiment.runs[0][0].run_id]
+    assert run.active_state == ActiveState.WAITING
+    assert experiment.active_state == ActiveState.WAITING
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_resets_multiple_runs(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback resets all RUNNING runs belonging to the dead worker."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(params={"x": [1, 2, 3]})
+    experiment = await _create_experiment(manager, definition, directory)
+
+    for _ in range(3):
+        dispatched = await manager.dispatch_waiting_run()
+        assert dispatched is not None
+        async with dispatched:
+            dispatched.finalise(wid=7)
+
+    assert experiment.active_state == ActiveState.RUNNING
+    running_count = sum(
+        1 for r in manager._runs.values() if r.active_state == ActiveState.RUNNING
+    )
+    assert running_count == 3
+
+    await manager.dead_worker_callback(wid=7)
+
+    for run in manager._runs.values():
+        assert run.active_state == ActiveState.WAITING
+        assert run.wid is None
+    assert experiment.active_state == ActiveState.WAITING
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_only_resets_dead_worker(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback only resets runs for the given wid, not other workers."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+
+    def1, dir1 = make_experiment(params={"x": [1]})
+    def2, dir2 = make_experiment(params={"x": [2]})
+    exp1 = await _create_experiment(manager, def1, dir1)
+    exp2 = await _create_experiment(manager, def2, dir2)
+
+    d1 = await manager.dispatch_waiting_run()
+    assert d1 is not None
+    async with d1:
+        d1.finalise(wid=1)
+
+    d2 = await manager.dispatch_waiting_run()
+    assert d2 is not None
+    async with d2:
+        d2.finalise(wid=2)
+
+    await manager.dead_worker_callback(wid=1)
+
+    run1 = manager._runs[exp1.runs[0][0].run_id]
+    run2 = manager._runs[exp2.runs[0][0].run_id]
+    assert run1.active_state == ActiveState.WAITING
+    assert run1.wid is None
+    assert run2.active_state == ActiveState.RUNNING
+    assert run2.wid == 2
+    assert exp1.active_state == ActiveState.WAITING
+    assert exp2.active_state == ActiveState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_persists_reset(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback reset is persisted and survives manager restart."""
+    data_path = tmp_path / "data"
+    manager = ExperimentManager(data_path=data_path)
+    definition, directory = make_experiment(params={"x": [1]})
+    await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run()
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=7)
+
+    await manager.dead_worker_callback(wid=7)
+    rid = dispatched.run.run_id
+    manager.close()
+
+    revived = ExperimentManager(data_path=data_path)
+    try:
+        retrieved = await revived.get_run(rid=rid)
+        assert retrieved.active_state == ActiveState.WAITING
+        assert retrieved.wid is None
+    finally:
+        revived.close()

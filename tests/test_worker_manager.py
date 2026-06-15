@@ -13,13 +13,19 @@ from mprun.models import WorkerData, WorkerState
 from mprun.worker_manager import WORKER_TIMEOUT, WorkerManager
 
 
+async def dummy_callback(wid: int) -> None:
+    """Dummy callback for testing."""
+
+
 @pytest.mark.asyncio
 @given(name=st.text())
 async def test_worker_register(name: str) -> None:
     """Test worker registration."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
         assert not manager._workers
 
         worker = await manager.register(name=name)
@@ -36,7 +42,9 @@ async def test_worker_checkin(name: str) -> None:
     """Test worker checkin."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
         worker = await manager.register(name=name)
 
         checkin_time = worker.last_check_in
@@ -51,7 +59,9 @@ async def test_evict_dead_worker_from_memory(name: str) -> None:
     """Dead workers are removed from the in-memory _workers dict after garbage collection."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
@@ -73,7 +83,9 @@ async def test_evicted_worker_persisted_as_dead(name: str) -> None:
     """Evicted workers remain in the database with state DEAD."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
@@ -98,7 +110,9 @@ async def test_evicted_worker_raises_on_get(name: str) -> None:
     """get() raises NoSuchWorkerError for an evicted worker."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
@@ -121,7 +135,9 @@ async def test_live_worker_not_evicted(name: str) -> None:
     """Workers with recent check-in are not collected."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
 
@@ -140,7 +156,9 @@ async def test_checkin_prevents_eviction(name: str) -> None:
     """A check-in before garbage collection resets the staleness clock."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
@@ -165,7 +183,9 @@ async def test_only_stale_workers_evicted(name: str) -> None:
     """Garbage collection only evicts stale workers, not all."""
     with TemporaryDirectory(delete=True) as tmp_dir:
         test_directory = Path(tmp_dir)
-        manager = WorkerManager(data_path=test_directory)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
 
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)

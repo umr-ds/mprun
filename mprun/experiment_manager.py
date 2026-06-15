@@ -485,7 +485,27 @@ class ExperimentManager:
             archives = await to_thread(experiment_directory.glob, "results_*.zip")
             return sorted(archives)
 
-    async def commit(self, operation: PendingDispatch) -> None:
+    async def dead_worker_callback(self, wid: int) -> None:
+        """To be called by the ``WorkerManager`` when a worker is marked as dead.
+
+        Scans Runs that are running, if ``wid`` matches, reset Run.
+
+        Args:
+            wid (int): Dead Worker's ID.
+        """
+        async with self._state_mutex:
+            running = [
+                run
+                for run in self._runs.values()
+                if run.active_state == ActiveState.RUNNING and run.wid == wid
+            ]
+            for run in running:
+                experiment = self._experiments[run.eid]
+                run.reset()
+                experiment.recalculate_state()
+                await self._update(experiment=experiment)
+
+    async def commit_dispatch(self, operation: PendingDispatch) -> None:
         """Commit a pending dispatch: mark the run as RUNNING, assign the worker, and persist.
 
         Rolls back the state change if the database write fails.
@@ -493,8 +513,14 @@ class ExperimentManager:
         Args:
             operation (PendingDispatch): The dispatch to commit. Must have ``wid`` set via
                 ``finalise`` before calling.
+
+        Raises:
+            NoSuchRunError: If there is no pending dispatch with this ``RunId``.
         """
         async with self._state_mutex:
+            if operation.run.run_id not in self._pending_dispatches:
+                raise NoSuchRunError(run_id=operation.run.run_id)
+
             prev_active = operation.run.active_state
             prev_wid = operation.run.wid
             operation.run.active_state = ActiveState.RUNNING
@@ -520,7 +546,7 @@ class ExperimentManager:
             finally:
                 self._pending_dispatches.discard(operation.run.run_id)
 
-    async def cancel(self, operation: PendingDispatch) -> None:
+    async def cancel_dispatch(self, operation: PendingDispatch) -> None:
         """Cancel a pending dispatch, releasing the run back to the waiting pool.
 
         Args:
@@ -612,9 +638,9 @@ class PendingDispatch:
     ) -> bool | None:
         """Commit if finalised and no exception occurred; cancel otherwise."""
         if type_ is None and self._finalised:
-            await self.manager.commit(self)
+            await self.manager.commit_dispatch(self)
         else:
-            await self.manager.cancel(self)
+            await self.manager.cancel_dispatch(self)
         return None
 
     def finalise(self, wid: int) -> Path:

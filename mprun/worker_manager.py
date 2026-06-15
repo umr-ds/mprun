@@ -3,8 +3,11 @@
 import asyncio
 import logging
 from asyncio import Lock, to_thread
+from collections.abc import Callable
 from pathlib import Path
 from time import time
+from types import CoroutineType
+from typing import Any
 from uuid import uuid4
 
 from tinydb import Query, TinyDB
@@ -38,7 +41,13 @@ class WorkerManager:
     _workers: dict[int, WorkerData]
     _gc_task: asyncio.Task[None]
 
-    def __init__(self, data_path: Path) -> None:
+    _dead_worker_callback: Callable[..., CoroutineType[Any, Any, None]]
+
+    def __init__(
+        self,
+        data_path: Path,
+        dead_worker_callback: Callable[..., CoroutineType[Any, Any, None]],
+    ) -> None:
         """Initialise WorkerManager."""
         data_path.mkdir(parents=True, exist_ok=True)
         self._data_path = data_path
@@ -49,6 +58,7 @@ class WorkerManager:
         workers = [WorkerData.model_validate(doc) for doc in docs]
         self._workers = {worker.wid: worker for worker in workers}
 
+        self._dead_worker_callback = dead_worker_callback
         self._gc_task = asyncio.create_task(self._gc_loop())
 
     @property
@@ -198,6 +208,7 @@ class WorkerManager:
 
     async def _collect_garbage(self) -> None:
         """Scan workers and evict any whose last check-in exceeds the timeout."""
+        dead_wids: list[int]
         async with self._state_mutex:
             now = time()
             dead_wids = [
@@ -209,6 +220,7 @@ class WorkerManager:
             for wid in dead_wids:
                 worker = self._workers[wid]
                 worker.state = WorkerState.DEAD
+                worker.run = None
                 await self._update(worker_data=worker)
                 del self._workers[wid]
                 logger.info(
@@ -216,3 +228,6 @@ class WorkerManager:
                     wid,
                     worker.name,
                 )
+
+        for wid in dead_wids:
+            await self._dead_worker_callback(wid=wid)

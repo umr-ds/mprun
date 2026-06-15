@@ -62,7 +62,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.experiment_manager = ExperimentManager(
         data_path=data_path / EXPERIMENT_DATA_PATH
     )
-    app.state.worker_manager = WorkerManager(data_path=data_path / WORKER_DATA_PATH)
+    app.state.worker_manager = WorkerManager(
+        data_path=data_path / WORKER_DATA_PATH,
+        dead_worker_callback=app.state.experiment_manager.dead_worker_callback,
+    )
     try:
         yield
     finally:
