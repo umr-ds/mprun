@@ -10,7 +10,6 @@ from http import HTTPStatus
 from pathlib import Path
 from zipfile import BadZipFile
 
-import platformdirs
 import uvicorn
 from fastapi import (
     Depends,
@@ -26,7 +25,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from typer import Option, Typer
 
-from mprun import PACKAGE_NAME, __version__
+from mprun import DEFAULT_DATA_DIRS, PACKAGE_NAME, __version__
 from mprun.custom_types import RunId
 from mprun.errors import (
     ArchiveValidationError,
@@ -55,11 +54,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI voodoo to integrate state."""
     data_path_str = os.getenv(DATA_PATH_ENV)
     if data_path_str is None:
-        data_path = Path(platformdirs.user_data_dir("mprun", ensure_exists=True))
+        data_path = DEFAULT_DATA_DIRS.user / "server"
     else:
         data_path = Path(data_path_str)
 
     logger.info("Starting server in %s", data_path)
+    data_path.mkdir(parents=True, exist_ok=True)
+
     app.state.experiment_manager = ExperimentManager(
         data_path=data_path / EXPERIMENT_DATA_PATH
     )

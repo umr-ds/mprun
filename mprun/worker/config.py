@@ -6,9 +6,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import platformdirs
 from pydantic import BaseModel, field_validator
 from tomlkit import load
+
+from mprun import DEFAULT_CONFIG_DIRS, AppPaths
 
 
 class WorkerConfig(BaseModel):
@@ -44,9 +45,9 @@ class WorkerConfig(BaseModel):
         raise ValueError(msg)
 
 
-DEFAULT_WORKER_CONFIG_PATHS: tuple[Path, ...] = (
-    Path(platformdirs.user_config_dir("mprun")) / "worker.toml",
-    Path(platformdirs.site_config_dir("mprun")) / "worker.toml",
+DEFAULT_WORKER_CONFIG_PATHS = AppPaths(
+    user=DEFAULT_CONFIG_DIRS.user / "worker.toml",
+    site=DEFAULT_CONFIG_DIRS.site / "worker.toml",
 )
 
 
@@ -62,9 +63,13 @@ def resolve_worker_config_path(explicit: Path | None = None) -> Path | None:
     """
     if explicit is not None:
         return explicit if explicit.is_file() else None
-    for path in DEFAULT_WORKER_CONFIG_PATHS:
-        if path.is_file():
-            return path
+
+    if DEFAULT_WORKER_CONFIG_PATHS.user.is_file():
+        return DEFAULT_WORKER_CONFIG_PATHS.user
+
+    if DEFAULT_WORKER_CONFIG_PATHS.site.is_file():
+        return DEFAULT_WORKER_CONFIG_PATHS.site
+
     return None
 
 

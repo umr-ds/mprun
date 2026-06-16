@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from typing import NamedTuple, override
 
 type TOMLScalar = (
@@ -89,3 +90,17 @@ class RunId(NamedTuple):
         """
         eid_str, index_str, iteration_str = value.split("-", maxsplit=2)
         return cls(eid=int(eid_str), index=int(index_str), iteration=int(iteration_str))
+
+
+class AppPaths(NamedTuple):
+    """NamedTuple for representing default paths.
+
+    E.g. config paths, data paths, etc.
+
+    Attributes:
+        user (Path): User-specific path (e.g. ``~/.local/share``, ``~/.config``, etc.)
+        site (Path): System-wide path (e.g. ``usr/local/share``, ``/etc``, etc.)
+    """
+
+    user: Path
+    site: Path
