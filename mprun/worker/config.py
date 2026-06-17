@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, field_validator
 from tomlkit import load
 
-from mprun import DEFAULT_CONFIG_DIRS, AppPaths
+from mprun import DEFAULT_CONFIG_DIRS, DEFAULT_DATA_DIRS, AppPaths
 
 
 class WorkerConfig(BaseModel):
@@ -17,7 +17,7 @@ class WorkerConfig(BaseModel):
 
     server_address: str
     name: str
-    home_directory: Path
+    home_directory: Path = DEFAULT_DATA_DIRS.user
     log_level: int = logging.INFO
 
     @field_validator("log_level", mode="before")

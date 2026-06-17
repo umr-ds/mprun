@@ -30,6 +30,7 @@ from mprun.models import (
     add_path_to_archive,
 )
 from mprun.worker.config import (
+    WorkerConfig,
     load_worker_config,
     resolve_worker_config_path,
 )
@@ -102,14 +103,14 @@ class Worker:
         return worker_data
 
     @classmethod
-    async def init(cls, server_address: str, name: str, home_directory: Path) -> Worker:
+    async def init(cls, server_address: str, name: str, config: WorkerConfig) -> Worker:
         """Create and register a new Worker with the server.
 
         Args:
             server_address (str): Base URL of the server. An ``http://`` prefix is added if
                 absent.
             name (str): Human-readable worker name passed to the server on registration.
-            home_directory (Path): Root directory for worker-local storage.
+            config (WorkerConfig): Worker configuration.
 
         Returns:
             Worker: Fully initialised worker, ready to call ``run``.
@@ -124,7 +125,9 @@ class Worker:
         client = AsyncClient(base_url=server_address)
         meta_data = await Worker.register(client=client, name=name)
 
-        return cls(http_client=client, meta_data=meta_data, home_dir=home_directory)
+        return cls(
+            http_client=client, meta_data=meta_data, home_dir=config.home_directory
+        )
 
     async def executor_loop(self) -> None:
         """Poll the server for work and execute runs.
@@ -536,10 +539,10 @@ class Worker:
         self.meta_data.last_check_in = time()
 
 
-async def _run(server_address: str, name: str, home_directory: Path) -> None:
+async def _run(server_address: str, config: WorkerConfig) -> None:
     try:
         worker = await Worker.init(
-            server_address=server_address, name=name, home_directory=home_directory
+            server_address=server_address, name=config.name, config=config
         )
     except HTTPStatusError as err:
         logger.critical("Worker registration failed: %s", err, exc_info=True)
@@ -578,8 +581,7 @@ def main(
     asyncio.run(
         _run(
             server_address=cfg.server_address,
-            name=cfg.name,
-            home_directory=cfg.home_directory,
+            config=cfg,
         )
     )
 
