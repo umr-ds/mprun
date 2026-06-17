@@ -10,12 +10,12 @@
     display: none;
 }
 
-#experiment-list, #run-list {
+#experiment-list, #run-list, #worker-list {
     width: 1fr;
     border: solid $accent;
 }
 
-#detail-panel, #run-panel {
+#detail-panel, #run-panel, #worker-panel {
     width: 1fr;
     border: solid $accent;
     padding: 1 2;
