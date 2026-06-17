@@ -1,11 +1,11 @@
 """HTTP client helpers shared across CLI and TUI."""
 
+import asyncio
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import AbstractContextManager
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
-from httpx import Client, HTTPStatusError, codes
+from httpx import AsyncClient, HTTPStatusError, codes
 from typer import echo
 
 from mprun.custom_types import RunId
@@ -14,13 +14,15 @@ from mprun.models import Experiment, ExperimentDefinition, Run, ValidationMode
 DEFAULT_URL = "http://localhost:8000"
 
 
-def _default_client_factory(base_url: str | None) -> AbstractContextManager[Client]:
-    """Return an instance of httpx.Client configured with ``base_url``, falling back to ``DEFAULT_URL``."""
-    return Client(base_url=base_url or DEFAULT_URL)
+def _default_client_factory(
+    base_url: str | None,
+) -> AbstractAsyncContextManager[AsyncClient]:
+    """Return an ``httpx.AsyncClient`` configured with ``base_url``, falling back to ``DEFAULT_URL``."""
+    return AsyncClient(base_url=base_url or DEFAULT_URL)
 
 
 # allows us to inject different client for testing
-_client_factory: Callable[[str | None], AbstractContextManager[Client]] = (
+_client_factory: Callable[[str | None], AbstractAsyncContextManager[AsyncClient]] = (
     _default_client_factory
 )
 
@@ -51,13 +53,13 @@ def load_experiment_archive(
     return definition, archive_path
 
 
-def download_run_results(
-    http_client: Client, eid: int, index: int, iteration: int, output: Path
+async def download_run_results(
+    http_client: AsyncClient, eid: int, index: int, iteration: int, output: Path
 ) -> Path | None:
     """Download the results archive for a single run and write it to disk.
 
     Args:
-        http_client (Client): HTTP client to use for the request.
+        http_client (AsyncClient): HTTP client to use for the request.
         eid (int): Experiment ID.
         index (int): Run index within the experiment.
         iteration (int): Iteration within an argument set.
@@ -71,9 +73,8 @@ def download_run_results(
         HTTPStatusError: If the server returns any non-2xx response other than 404.
     """
     try:
-        resp = http_client.get(
-            f"/runs/{eid}/{index}/{iteration}/results"
-        ).raise_for_status()
+        resp = await http_client.get(f"/runs/{eid}/{index}/{iteration}/results")
+        resp.raise_for_status()
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             return None
@@ -92,15 +93,15 @@ def download_run_results(
     return dest
 
 
-def get_experiment_results_parallel(
-    http_client: Client,
+async def get_experiment_results(
+    http_client: AsyncClient,
     experiment: Experiment,
     out_dir: Path,
 ) -> tuple[list[Path], list[int], bool]:
     """Download results for all runs in an experiment concurrently.
 
     Args:
-        http_client (Client): HTTP client to use for all requests. ``httpx.Client`` is thread-safe.
+        http_client (AsyncClient): HTTP client to use for all requests.
         experiment (Experiment): The experiment whose runs to download.
         out_dir (Path): Directory to save archives into.
 
@@ -108,41 +109,41 @@ def get_experiment_results_parallel(
         tuple[list[Path], list[int], bool]: Saved paths, skipped run indices, and
             whether any download failed.
     """
-    saved: list[Path] = []
-    skipped: list[int] = []
-    failed = False
 
-    with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(
-                download_run_results,
+    async def _download_one(run: Run) -> tuple[Path | None, int, bool]:
+        try:
+            result = await download_run_results(
                 http_client=http_client,
                 eid=run.eid,
                 index=run.index,
                 iteration=run.iteration,
                 output=out_dir,
-            ): run.index
-            for runs in experiment.runs
-            for run in runs
-        }
-        for future in as_completed(futures):
-            run_index = futures[future]
-            try:
-                result = future.result()
-            except HTTPStatusError as err:
-                echo(f"HTTP error downloading run {run_index}: {err}", err=True)
-                failed = True
-                continue
-            if result is None:
-                skipped.append(run_index)
-            else:
-                saved.append(result)
+            )
+        except HTTPStatusError as err:
+            echo(f"HTTP error downloading run {run.index}: {err}", err=True)
+            return None, run.index, True
+        return result, run.index, False
+
+    tasks = [_download_one(run) for runs in experiment.runs for run in runs]
+    results = await asyncio.gather(*tasks)
+
+    saved: list[Path] = []
+    skipped: list[int] = []
+    failed = False
+
+    for result, run_index, errored in results:
+        if errored:
+            failed = True
+        elif result is None:
+            skipped.append(run_index)
+        else:
+            saved.append(result)
 
     return saved, skipped, failed
 
 
-def submit_experiment(
-    http_client: Client,
+async def submit_experiment(
+    http_client: AsyncClient,
     experiment_path: Path,
 ) -> tuple[Experiment, str]:
     """Load, archive, and POST an experiment definition to the server.
@@ -151,7 +152,7 @@ def submit_experiment(
     then POSTs both to the server.
 
     Args:
-        http_client (Client): HTTP client to use for the request.
+        http_client (AsyncClient): HTTP client to use for the request.
         experiment_path (Path): Path to the experiment TOML definition file.
 
     Returns:
@@ -166,13 +167,13 @@ def submit_experiment(
         RequestError: If the server is unreachable or the request fails at the transport level.
         HTTPStatusError: If the server returns a non-2xx response.
     """
-    if not experiment_path.exists():
+    if not experiment_path.exists():  # noqa: ASYNC240
         raise FileNotFoundError(experiment_path)
 
     definition, archive_path = load_experiment_archive(experiment_path)
 
     with archive_path.open("rb") as archive_file:
-        resp = http_client.post(
+        resp = await http_client.post(
             "/experiments",
             data={"experiment_definition": definition.model_dump_json()},
             files={
@@ -182,35 +183,37 @@ def submit_experiment(
                     "application/zip",
                 )
             },
-        ).raise_for_status()
+        )
+        resp.raise_for_status()
     return Experiment.model_validate(resp.json()), resp.text
 
 
-def delete_experiment(
-    http_client: Client,
+async def delete_experiment(
+    http_client: AsyncClient,
     eid: int,
 ) -> None:
     """Delete an experiment by ID.
 
     Args:
-        http_client (Client): HTTP client to use for the request.
+        http_client (AsyncClient): HTTP client to use for the request.
         eid (int): ID of the experiment to delete.
 
     Raises:
         HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found,
             500 if the server fails to remove the experiment data from disk).
     """
-    http_client.delete(f"/experiments/{eid}").raise_for_status()
+    resp = await http_client.delete(f"/experiments/{eid}")
+    resp.raise_for_status()
 
 
-def reset_run(
-    http_client: Client,
+async def reset_run(
+    http_client: AsyncClient,
     rid: RunId,
 ) -> Run:
     """Reset a run: delete its results and return it to WAITING state.
 
     Args:
-        http_client (Client): HTTP client to use for the request.
+        http_client (AsyncClient): HTTP client to use for the request.
         rid (RunId): Composite run identity.
 
     Returns:
@@ -219,7 +222,6 @@ def reset_run(
     Raises:
         HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found).
     """
-    resp = http_client.post(
-        f"/runs/{rid.eid}/{rid.index}/{rid.iteration}/reset"
-    ).raise_for_status()
+    resp = await http_client.post(f"/runs/{rid.eid}/{rid.index}/{rid.iteration}/reset")
+    resp.raise_for_status()
     return Run.model_validate(resp.json())

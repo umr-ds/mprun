@@ -2,9 +2,13 @@
 
 """CLI client for interacting with the server."""
 
+import asyncio
+import functools
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from lzma import LZMAError
 from pathlib import Path
+from typing import Any
 
 from httpx import HTTPStatusError, RequestError, codes
 from pydantic import ValidationError
@@ -16,7 +20,7 @@ from mprun.client.client import (
     _client_factory,
     delete_experiment,
     download_run_results,
-    get_experiment_results_parallel,
+    get_experiment_results,
     reset_run,
     submit_experiment,
 )
@@ -26,6 +30,16 @@ from mprun.models import Experiment
 
 console = Console()
 client = Typer(no_args_is_help=False)
+
+
+def _async_command(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator that runs an async Typer command with ``asyncio.run``."""
+
+    @functools.wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        return asyncio.run(f(*args, **kwargs))
+
+    return wrapper
 
 
 def _fmt_ts(ts: float | None) -> str:
@@ -150,7 +164,8 @@ def _tui_entry(ctx: Context) -> None:
 
 
 @client.command("list", help="Get list of all experiments")
-def list_experiments(
+@_async_command
+async def list_experiments(
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
     ),
@@ -160,8 +175,8 @@ def list_experiments(
 ) -> None:
     """Get list of all experiments."""
     try:
-        with _client_factory(base_url) as http:
-            resp = http.get("/experiments")
+        async with _client_factory(base_url) as http:
+            resp = await http.get("/experiments")
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
         raise Exit(1) from err
@@ -180,7 +195,8 @@ def list_experiments(
 
 
 @client.command("get", help="Get specific experiment by its ID")
-def get_experiment(
+@_async_command
+async def get_experiment(
     eid: int = Argument(
         help="Experiment's ID (use List command to get all experiments and their IDs)"
     ),
@@ -193,8 +209,8 @@ def get_experiment(
 ) -> None:
     """Get specific experiment by its ID."""
     try:
-        with _client_factory(base_url) as http:
-            resp = http.get(f"/experiments/{eid}")
+        async with _client_factory(base_url) as http:
+            resp = await http.get(f"/experiments/{eid}")
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No experiment with ID {eid}", err=True)
@@ -216,7 +232,8 @@ def get_experiment(
 
 
 @client.command("create", help="Create a new experiment from an experiment definition.")
-def create_experiment(
+@_async_command
+async def create_experiment(
     experiment_file: str = Argument(help="Path to experiment definition"),
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
@@ -227,8 +244,8 @@ def create_experiment(
 ) -> None:
     """Create a new experiment from an experiment definition."""
     try:
-        with _client_factory(base_url) as http:
-            experiment, resp_text = submit_experiment(
+        async with _client_factory(base_url) as http:
+            experiment, resp_text = await submit_experiment(
                 http_client=http, experiment_path=Path(experiment_file)
             )
     except (
@@ -252,7 +269,8 @@ def create_experiment(
 
 
 @client.command("delete", help="Delete an experiment and all its associated data.")
-def delete_experiment_cmd(
+@_async_command
+async def delete_experiment_cmd(
     eid: int = Argument(help="ID of the experiment to delete."),
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
@@ -264,8 +282,8 @@ def delete_experiment_cmd(
         confirm(f"Delete experiment {eid}? This cannot be undone.", abort=True)
 
     try:
-        with _client_factory(base_url) as http:
-            delete_experiment(http_client=http, eid=eid)
+        async with _client_factory(base_url) as http:
+            await delete_experiment(http_client=http, eid=eid)
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No experiment with ID {eid}", err=True)
@@ -283,7 +301,8 @@ def delete_experiment_cmd(
 
 
 @client.command("results", help="Download results archive for a specific run.")
-def get_run_results(
+@_async_command
+async def get_run_results(
     run_id: str = Argument(help="Run ID"),
     output: Path | None = Option(
         None,
@@ -309,8 +328,8 @@ def get_run_results(
         raise Exit(1) from err
 
     try:
-        with _client_factory(base_url) as http:
-            dest = download_run_results(
+        async with _client_factory(base_url) as http:
+            dest = await download_run_results(
                 http_client=http,
                 eid=rid.eid,
                 index=rid.index,
@@ -333,7 +352,8 @@ def get_run_results(
 @client.command(
     "reset", help="Reset a run: delete results and return to WAITING state."
 )
-def reset_run_cmd(
+@_async_command
+async def reset_run_cmd(
     run_id: str = Argument(help="Run ID (e.g. 12345678-0-0)"),
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
@@ -350,8 +370,8 @@ def reset_run_cmd(
         raise Exit(1) from err
 
     try:
-        with _client_factory(base_url) as http:
-            run = reset_run(
+        async with _client_factory(base_url) as http:
+            run = await reset_run(
                 http_client=http,
                 rid=rid,
             )
@@ -366,7 +386,8 @@ def reset_run_cmd(
 
 
 @client.command("get-results", help="Download results for all runs in an experiment.")
-def get_experiment_results(
+@_async_command
+async def get_experiment_results_cmd(
     eid: int = Argument(help="Experiment ID"),
     output: Path | None = Option(
         None,
@@ -383,8 +404,9 @@ def get_experiment_results(
 ) -> None:
     """Download results for all runs in an experiment in parallel."""
     try:
-        with _client_factory(base_url) as http:
-            resp = http.get(f"/experiments/{eid}").raise_for_status()
+        async with _client_factory(base_url) as http:
+            resp = await http.get(f"/experiments/{eid}")
+            resp.raise_for_status()
 
             try:
                 experiment = Experiment.model_validate(resp.json())
@@ -392,7 +414,7 @@ def get_experiment_results(
                 echo(f"Error validating response: {err}", err=True)
                 raise Exit(1) from err
 
-            saved, skipped, failed = get_experiment_results_parallel(
+            saved, skipped, failed = await get_experiment_results(
                 http_client=http,
                 experiment=experiment,
                 out_dir=output or Path(),

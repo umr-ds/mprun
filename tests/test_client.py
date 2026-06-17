@@ -1,18 +1,19 @@
 """Tests for client module."""
 
+import asyncio
 import json
 import zipfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 import mprun.client.cli
-import mprun.client.client
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client.cli import client
 from mprun.custom_types import ActiveState, SuccessState
@@ -30,14 +31,31 @@ runner = CliRunner()
 
 @contextmanager
 def _patched_client(tmp_path: Path) -> Iterator[TestClient]:
-    """Patch ``_client_factory`` in cli and client modules to talk to a TestClient-wrapped server."""
+    """Patch ``_client_factory`` in the cli module to talk to a FastAPI server via ASGITransport."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
         mp.setenv(SERVER_ADDRESS_ENV, "8086")
-        with TestClient(server) as http_client:
-            factory = lambda _url: nullcontext(http_client)  # noqa: E731
+        transport = httpx.ASGITransport(app=server)
+        async_client = httpx.AsyncClient(transport=transport, base_url="http://test")
+        with TestClient(server) as test_client:
+
+            def factory(
+                _url: str | None,
+            ) -> httpx.AsyncClient:
+                return async_client
+
             mp.setattr(mprun.client.cli, "_client_factory", factory)
-            yield http_client
+            yield test_client
+
+        # Clean-up the async client.  Test functions are sync, so we cannot
+        # ``await aclose()``.  Create a fresh, temporary event loop just for
+        # closing.
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(async_client.aclose())
+            loop.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _post_experiment(

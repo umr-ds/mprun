@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 import os
 from datetime import UTC, datetime, timedelta
@@ -25,7 +24,7 @@ from mprun.client.client import (
     DEFAULT_URL,
     delete_experiment,
     download_run_results,
-    get_experiment_results_parallel,
+    get_experiment_results,
     reset_run,
     submit_experiment,
 )
@@ -304,12 +303,11 @@ class DetailView(Screen[None]):
         iteration = run["iteration"]
         output = Path.cwd()
 
-        def _sync_download() -> Path | None:
-            with httpx.Client(base_url=self.base_url) as client:
-                return download_run_results(client, eid, index, iteration, output)
-
         try:
-            result = await asyncio.to_thread(_sync_download)
+            async with httpx.AsyncClient(base_url=self.base_url) as client:
+                result = await download_run_results(
+                    client, eid, index, iteration, output
+                )
         except (httpx.HTTPStatusError, httpx.RequestError) as err:
             self.notify(f"Download failed: {err}", severity="error")
             return
@@ -343,12 +341,9 @@ class DetailView(Screen[None]):
         """Reset the run via the server and refresh the view."""
         rid = RunId(eid=run["eid"], index=run["index"], iteration=run["iteration"])
 
-        def _sync_reset() -> None:
-            with httpx.Client(base_url=self.base_url) as client:
-                reset_run(client, rid)
-
         try:
-            await asyncio.to_thread(_sync_reset)
+            async with httpx.AsyncClient(base_url=self.base_url) as client:
+                await reset_run(client, rid)
         except httpx.HTTPStatusError as err:
             self.notify(
                 f"Reset failed: HTTP {err.response.status_code}", severity="error"
@@ -575,12 +570,11 @@ class OverViewScreen(Screen[None]):
         out_dir = Path.cwd() / str(exp["eid"])
         out_dir.mkdir(exist_ok=True)
 
-        def _sync_download() -> tuple[list[Path], list[int], bool]:
-            with httpx.Client(base_url=self.base_url) as client:
-                return get_experiment_results_parallel(client, experiment, out_dir)
-
         try:
-            saved, skipped, failed = await asyncio.to_thread(_sync_download)
+            async with httpx.AsyncClient(base_url=self.base_url) as client:
+                saved, skipped, failed = await get_experiment_results(
+                    client, experiment, out_dir
+                )
         except (httpx.HTTPStatusError, httpx.RequestError) as err:
             self.notify(f"Download failed: {err}", severity="error")
             return
@@ -615,12 +609,9 @@ class OverViewScreen(Screen[None]):
         """Delete an experiment via the server and refresh the list."""
         eid = exp["eid"]
 
-        def _sync_delete() -> None:
-            with httpx.Client(base_url=self.base_url) as client:
-                delete_experiment(client, eid)
-
         try:
-            await asyncio.to_thread(_sync_delete)
+            async with httpx.AsyncClient(base_url=self.base_url) as client:
+                await delete_experiment(client, eid)
         except httpx.HTTPStatusError as err:
             self.notify(
                 f"Delete failed: HTTP {err.response.status_code}", severity="error"
@@ -730,8 +721,8 @@ class ExperimentPreviewModal(ModalScreen[None]):
         base_url = self._base_url
 
         try:
-            with httpx.Client(base_url=base_url) as http:
-                await asyncio.to_thread(submit_experiment, http, file_path)
+            async with httpx.AsyncClient(base_url=base_url) as http:
+                await submit_experiment(http, file_path)
         except Exception as e:  # noqa: BLE001
             self.notify(str(e).splitlines()[0], severity="error")
             return
