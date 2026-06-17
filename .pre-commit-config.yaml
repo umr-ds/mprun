@@ -1,11 +1,11 @@
 repos:
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.15.14
+  rev: v0.15.17
   hooks:
     - id: ruff-check
     - id: ruff-format
 - repo: https://github.com/allganize/ty-pre-commit
-  rev: v0.0.39
+  rev: v0.0.49
   hooks:
     - id: ty-check
 - repo: https://github.com/netromdk/vermin
