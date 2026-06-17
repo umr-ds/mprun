@@ -12,6 +12,16 @@ from tomlkit import load
 from mprun import DEFAULT_CONFIG_DIRS, DEFAULT_DATA_DIRS, AppPaths
 
 
+class RegistrationData(BaseModel):
+    """Worker registration data.
+
+    Dumped to JSON file upon successful registration and read upon worker restart.
+    """
+
+    name: str
+    wid: int
+
+
 class WorkerConfig(BaseModel):
     """Worker configuration, loaded from a TOML file."""
 
@@ -19,6 +29,13 @@ class WorkerConfig(BaseModel):
     name: str
     home_directory: Path = DEFAULT_DATA_DIRS.user
     log_level: int = logging.INFO
+
+    @field_validator("server_address", mode="before")
+    @classmethod
+    def _validate_server_address(cls, v: str) -> str:
+        if isinstance(v, str) and "://" not in v:
+            return f"http://{v}"
+        return v
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -21,7 +21,12 @@ from httpx import AsyncClient, HTTPStatusError
 from typer import Exit, Option, Typer
 
 from mprun.custom_types import ActiveState, FailureReason, SuccessState
-from mprun.errors import ArchiveValidationError, NoRunError
+from mprun.errors import (
+    ArchiveValidationError,
+    InconsistentConfigurationError,
+    NoRunError,
+    NoSavedMetadataError,
+)
 from mprun.log import configure_logging
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -30,6 +35,7 @@ from mprun.models import (
     add_path_to_archive,
 )
 from mprun.worker.config import (
+    RegistrationData,
     WorkerConfig,
     load_worker_config,
     resolve_worker_config_path,
@@ -39,6 +45,8 @@ logger = logging.getLogger(__name__)
 cli = Typer()
 
 RESULTS_ARCHIVE_NAME = "results.zip"
+REGISTRATION_FILE_NAME = "registration.json"
+METADATA_FILE_NAME = "metadata.json"
 SLEEP_TIME = 60
 
 
@@ -102,6 +110,37 @@ class Worker:
 
         return worker_data
 
+    @staticmethod
+    async def revive(client: AsyncClient, wid: int) -> WorkerData | None:
+        """Revive worker.
+
+        Useful if Worker has been restarted, or had connectivity issues, and you don't want it to re-register as a new worker.
+
+        Args:
+            client (AsyncClient): HTTP client configured with the server's base URL.
+            wid (int): Worker's ID.
+
+        Returns:
+            WorkerData: Worker metadata returned by the server on successful revive.
+                None if the server responds with status 409 (this worker has not been marked as dead yet).
+
+        Raises:
+            HTTPStatusError: If the server returns a non-2xx response (except 409).
+        """
+        logger.info("Attempting to revive")
+        response = await client.post(f"/workers/revive/{wid}")
+        if response.status_code == HTTPStatus.CONFLICT:
+            logger.info(
+                "Server responded with status 409: We were not marked as dead yet"
+            )
+            return None
+        response.raise_for_status()
+
+        worker_data = WorkerData.model_validate(response.json())
+        logger.info("Successful revive")
+
+        return worker_data
+
     @classmethod
     async def init(cls, server_address: str, name: str, config: WorkerConfig) -> Worker:
         """Create and register a new Worker with the server.
@@ -117,13 +156,51 @@ class Worker:
 
         Raises:
             HTTPStatusError: If registration with the server fails.
+            InconsistentConfigurationError: If the saved registered name differs from the configured name.
+            NoSavedMetadataError: When there's no saved metadata to read.
         """
         logger.info("Initialising worker")
-        if not server_address.startswith("http://"):
-            server_address = f"http://{server_address}"
 
         client = AsyncClient(base_url=server_address)
-        meta_data = await Worker.register(client=client, name=name)
+
+        registration_path = config.home_directory / REGISTRATION_FILE_NAME
+        meta_data_path = config.home_directory / METADATA_FILE_NAME
+
+        registration_data: RegistrationData
+
+        if not await to_thread(
+            registration_path.is_file
+        ):  # no saved registration data available -> register new worker
+            meta_data = await Worker.register(client=client, name=name)
+            with meta_data_path.open("w") as f:
+                await to_thread(f.write, meta_data.model_dump_json())
+            registration_data = RegistrationData(name=config.name, wid=meta_data.wid)
+            with registration_path.open("w") as f:
+                await to_thread(f.write, registration_data.model_dump_json())
+            return cls(
+                http_client=client, meta_data=meta_data, home_dir=config.home_directory
+            )
+
+        with registration_path.open("rb") as f:
+            data = await to_thread(f.read)
+            registration_data = RegistrationData.model_validate_json(json_data=data)
+
+        if registration_data.name != config.name:
+            raise InconsistentConfigurationError(
+                name="name", expected=registration_data.name, got=config.name
+            )
+
+        wdat = await Worker.revive(client=client, wid=registration_data.wid)
+        if wdat is None:
+            if not await to_thread(meta_data_path.is_file):
+                raise NoSavedMetadataError
+            with meta_data_path.open("rb") as f:
+                data = await to_thread(f.read)
+                meta_data = WorkerData.model_validate_json(json_data=data)
+        else:
+            meta_data = wdat
+            with meta_data_path.open("w") as f:
+                await to_thread(f.write, meta_data.model_dump_json())
 
         return cls(
             http_client=client, meta_data=meta_data, home_dir=config.home_directory

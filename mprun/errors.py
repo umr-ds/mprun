@@ -1,7 +1,7 @@
 """Custom exception types."""
 
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 from mprun.custom_types import RunId
 
@@ -129,3 +129,29 @@ class WorkerNotDeadError(Exception):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Worker with ID {self.wid} is not dead!"
+
+
+@dataclass(frozen=True)
+class InconsistentConfigurationError(ValueError):
+    """Raised when a components configuration has conflicts.
+
+    Attributes:
+        name (str): Name of the config item.
+        expected (Any): What the value should have been.
+        got (Any): What the value actually was.
+    """
+
+    name: str
+    expected: Any
+    got: Any
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return (
+            f"Configuration value {self.name}: expected {self.expected}, got {self.got}"
+        )
+
+
+class NoSavedMetadataError(Exception):
+    """Raised if there is no saved metadata, when there should be."""
