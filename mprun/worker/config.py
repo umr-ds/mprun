@@ -27,7 +27,7 @@ class WorkerConfig(BaseModel):
 
     server_address: str
     name: str
-    home_directory: Path = DEFAULT_DATA_DIRS.user
+    home_directory: Path = DEFAULT_DATA_DIRS.user / "worker"
     log_level: int = logging.INFO
 
     @field_validator("server_address", mode="before")

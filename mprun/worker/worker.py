@@ -163,6 +163,7 @@ class Worker:
 
         client = AsyncClient(base_url=server_address)
 
+        config.home_directory.mkdir(parents=True, exist_ok=True)
         registration_path = config.home_directory / REGISTRATION_FILE_NAME
         meta_data_path = config.home_directory / METADATA_FILE_NAME
 
