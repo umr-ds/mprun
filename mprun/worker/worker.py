@@ -11,7 +11,7 @@ from asyncio import Task, create_task, sleep, to_thread, wait_for
 from http import HTTPStatus
 from os import environ
 from pathlib import Path
-from shutil import copy, copytree, rmtree, unpack_archive
+from shutil import copy, copytree, unpack_archive
 from tempfile import TemporaryDirectory
 from time import time
 from typing import BinaryIO
@@ -49,7 +49,6 @@ class Worker:
         meta_data (WorkerData): Worker metadata returned by the server on registration.
         working (Run | None): The run currently being executed, or ``None`` if idle.
         home_dir (Path): Root directory for worker-local data (archives, results).
-        execution_dir (Path): Working directory used during run execution; cleared after each run.
         archive_path (Path): Destination path for the current experiment's ZIP archive.
         _runner_task (Task): Background asyncio task running ``executor_loop``.
     """
@@ -58,7 +57,6 @@ class Worker:
     meta_data: WorkerData
     working: Run | None
     home_dir: Path
-    execution_dir: Path
     archive_path: Path
 
     _runner_task: Task[None]
@@ -78,8 +76,6 @@ class Worker:
         self.working = None
         self.home_dir = home_dir
         self.home_dir.mkdir(parents=True, exist_ok=True)
-        self.execution_dir = self.home_dir / "exec"
-        self.execution_dir.mkdir(parents=True, exist_ok=True)
         self.archive_path = self.home_dir / EXPERIMENT_ARCHIVE_NAME
 
     @staticmethod
@@ -146,21 +142,23 @@ class Worker:
                     await sleep(SLEEP_TIME)
                     continue
 
-                failure = await self.execute_run()
-                logger.info("Finished execution with failure state %s", failure)
+                with TemporaryDirectory(delete=True) as tmp_dir:
+                    execution_dir = Path(tmp_dir)
+                    failure = await self.execute_run(execution_dir=execution_dir)
+                    logger.info("Finished execution with failure state %s", failure)
 
-                if failure is None:
-                    self.working.success_state = SuccessState.SUCCESS
-                    self.working.failure_reason = None
-                else:
-                    self.working.success_state = SuccessState.FAILED
-                    self.working.failure_reason = failure
-                self.working.active_state = ActiveState.FINISHED
-                self.working.finished_running = time()
+                    if failure is None:
+                        self.working.success_state = SuccessState.SUCCESS
+                        self.working.failure_reason = None
+                    else:
+                        self.working.success_state = SuccessState.FAILED
+                        self.working.failure_reason = failure
+                    self.working.active_state = ActiveState.FINISHED
+                    self.working.finished_running = time()
 
-                logger.info("Updating Run state")
-                await self.collect_results()
-                await self.upload_results()
+                    logger.info("Updating Run state")
+                    await self.collect_results(execution_dir=execution_dir)
+                    await self.upload_results()
             except (ArchiveValidationError, BadZipFile):
                 logger.exception("Archive validation failed")
                 await self.report_error()
@@ -177,7 +175,6 @@ class Worker:
             finally:
                 if self.working is not None:
                     self.working = None
-                    await self.cleanup()
 
     async def get_work(self) -> None:
         """Query the server for a waiting run.
@@ -234,13 +231,16 @@ class Worker:
 
         self.working = run
 
-    async def execute_run(self) -> FailureReason | None:
+    async def execute_run(self, execution_dir: Path) -> FailureReason | None:
         """Execute the current run.
 
         Runs the setup executable (if configured), then the main executable. Environment files
         are copied and environment variables applied via ``prepare_run_environment`` before
         either executable starts. Each executable's stdout and stderr are captured to files in
         ``execution_dir``. If a timeout is configured, the process is killed on expiry.
+
+        Args:
+            execution_dir (Path): (Temporary directory) for Run execution.
 
         Returns:
             FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
@@ -254,13 +254,13 @@ class Worker:
         self.working.active_state = ActiveState.RUNNING
 
         logger.info("Executing Run %s", self.working.run_id)
-        env = await self.prepare_run_environment()
+        env = await self.prepare_run_environment(execution_dir=execution_dir)
 
         if self.working.definition.setup_executable is not None:
             logger.debug("Running setup executable")
-            setup_stdout_path = self.execution_dir / "stdout.setup"
-            setup_stderr_path = self.execution_dir / "stderr.setup"
-            program = self.execution_dir / self.working.definition.setup_executable
+            setup_stdout_path = execution_dir / "stdout.setup"
+            setup_stderr_path = execution_dir / "stderr.setup"
+            program = execution_dir / self.working.definition.setup_executable
             with (
                 setup_stdout_path.open("wb") as setup_stdout_file,
                 setup_stderr_path.open("wb") as setup_stderr_file,
@@ -270,14 +270,15 @@ class Worker:
                     stdout=setup_stdout_file,
                     stderr=setup_stderr_file,
                     env=env,
+                    execution_dir=execution_dir,
                 )
                 if failure is not None:
                     return failure
 
-        stdout_path = self.execution_dir / "stdout"
-        stderr_path = self.execution_dir / "stderr"
+        stdout_path = execution_dir / "stdout"
+        stderr_path = execution_dir / "stderr"
         args = [
-            self.execution_dir / self.working.definition.executable,
+            execution_dir / self.working.definition.executable,
             *self.working.assemble_args(),
         ]
         logger.debug("Running main executable")
@@ -286,7 +287,11 @@ class Worker:
             stderr_path.open("wb") as stderr_file,
         ):
             return await self.execute(
-                args=args, stdout=stdout_file, stderr=stderr_file, env=env
+                args=args,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                env=env,
+                execution_dir=execution_dir,
             )
 
     async def execute(
@@ -295,6 +300,7 @@ class Worker:
         stdout: BinaryIO,
         stderr: BinaryIO,
         env: dict[str, str],
+        execution_dir: Path,
     ) -> FailureReason | None:
         """Execute single executable.
 
@@ -303,6 +309,7 @@ class Worker:
             stdout (BinaryIO): Oen file to write executable's stdout to.
             stderr (BinaryIO): Oen file to write executable's stderr to.
             env (dict[str, str]): Environment variables for executable.
+            execution_dir (Path): (Temporary directory) for Run execution.
 
         Returns:
             FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
@@ -317,7 +324,7 @@ class Worker:
             shell=False,
             stdout=stdout,
             stderr=stderr,
-            cwd=self.execution_dir,
+            cwd=execution_dir,
             env=env,
         )
         if self.working.definition.timeout:
@@ -333,13 +340,16 @@ class Worker:
             return None
         return FailureReason.RETURN
 
-    async def prepare_run_environment(self) -> dict[str, str]:
+    async def prepare_run_environment(self, execution_dir: Path) -> dict[str, str]:
         """Unpack the experiment archive and build the process environment.
 
         Extracts the archive into ``execution_dir``, ensures executables have the execute bit
         set, and merges any ``environment_variables`` from the definition into a copy of the
         current process environment. Environment files are copied to their configured
         destinations on the local filesystem.
+
+        Args:
+            execution_dir (Path): (Temporary directory) for Run execution.
 
         Returns:
             dict[str, str]: Full environment mapping to pass to the subprocess.
@@ -354,15 +364,15 @@ class Worker:
         await to_thread(
             unpack_archive,
             filename=self.archive_path,
-            extract_dir=self.execution_dir,
+            extract_dir=execution_dir,
             format="zip",
         )
 
         # Set execute permissions for executables
         if self.working.definition.setup_executable:
-            setup_script = self.execution_dir / self.working.definition.setup_executable
+            setup_script = execution_dir / self.working.definition.setup_executable
             await to_thread(setup_script.chmod, setup_script.stat().st_mode | 0o111)
-        main_script = self.execution_dir / self.working.definition.executable
+        main_script = execution_dir / self.working.definition.executable
         await to_thread(main_script.chmod, main_script.stat().st_mode | 0o111)
 
         env = environ.copy()
@@ -375,7 +385,7 @@ class Worker:
                 env_file,
                 destination,
             ) in self.working.definition.environment_files.items():
-                source = self.execution_dir / env_file
+                source = execution_dir / env_file
                 logger.debug("Copying %s to %s", source, destination)
                 if source.is_file():
                     await to_thread(copy, source, destination)
@@ -384,11 +394,14 @@ class Worker:
 
         return env
 
-    async def collect_results(self) -> None:
+    async def collect_results(self, execution_dir: Path) -> None:
         """Package run outputs and result files into a ZIP archive at ``home_dir/results.zip``.
 
         Always includes captured stdout/stderr (and their setup equivalents if present). Then
         adds every file or directory listed in the run's ``results`` definition.
+
+        Args:
+            execution_dir (Path): (Temporary directory) for Run execution.
 
         Raises:
             NoRunError: If called when no run is assigned (``self.working`` is ``None``).
@@ -402,16 +415,16 @@ class Worker:
         with ZipFile(
             archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
         ) as zf:
-            setup_stdout_path = self.execution_dir / "stdout.setup"
+            setup_stdout_path = execution_dir / "stdout.setup"
             if await to_thread(setup_stdout_path.is_file):
                 await to_thread(zf.write, setup_stdout_path, "stdout.setup")
-            setup_stderr_path = self.execution_dir / "stderr.setup"
+            setup_stderr_path = execution_dir / "stderr.setup"
             if await to_thread(setup_stderr_path.is_file):
                 await to_thread(zf.write, setup_stderr_path, "stderr.setup")
-            stdout_path = self.execution_dir / "stdout"
+            stdout_path = execution_dir / "stdout"
             if await to_thread(stdout_path.is_file):
                 await to_thread(zf.write, stdout_path, "stdout")
-            stderr_path = self.execution_dir / "stderr"
+            stderr_path = execution_dir / "stderr"
             if await to_thread(stderr_path.is_file):
                 await to_thread(zf.write, stderr_path, "stderr")
 
@@ -419,18 +432,12 @@ class Worker:
                 # Use absolute path for name_local
                 name_local = Path(result_local)
                 if not name_local.is_absolute():
-                    name_local = self.execution_dir / name_local
+                    name_local = execution_dir / name_local
                 await Worker.add_result(
                     zf=zf,
                     name_local=name_local,
                     name_archive=result_archive,
                 )
-
-    async def cleanup(self) -> None:
-        """Clean up execution directory."""
-        logger.info("Cleaning up execution directory")
-        await to_thread(rmtree, self.execution_dir)
-        await to_thread(self.execution_dir.mkdir)
 
     @staticmethod
     async def add_result(zf: ZipFile, name_local: Path, name_archive: str) -> None:

@@ -164,7 +164,8 @@ async def test_execute_run(tmp_path: Path) -> None:
     worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
-    failure = await worker.execute_run()
+    with TemporaryDirectory() as exec_dir:
+        failure = await worker.execute_run(execution_dir=Path(exec_dir))
 
     assert failure is None
 
@@ -188,10 +189,12 @@ async def test_collect_results(tmp_path: Path) -> None:
     worker.working = experiment.runs[0][0]
     worker.archive_path = archive_path
 
-    failure = await worker.execute_run()
-    assert failure is None
+    with TemporaryDirectory() as exec_dir:
+        exec_path = Path(exec_dir)
+        failure = await worker.execute_run(execution_dir=exec_path)
+        assert failure is None
 
-    await worker.collect_results()
+        await worker.collect_results(execution_dir=exec_path)
 
     results_archive = worker.home_dir / RESULTS_ARCHIVE_NAME
     assert results_archive.is_file()
@@ -339,7 +342,11 @@ async def test_execute_run_fails_when_main_exits_nonzero(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() == FailureReason.RETURN
+    with TemporaryDirectory() as exec_dir:
+        assert (
+            await worker.execute_run(execution_dir=Path(exec_dir))
+            == FailureReason.RETURN
+        )
 
 
 @pytest.mark.asyncio
@@ -358,7 +365,11 @@ async def test_execute_run_fails_when_setup_exits_nonzero(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() == FailureReason.RETURN
+    with TemporaryDirectory() as exec_dir:
+        assert (
+            await worker.execute_run(execution_dir=Path(exec_dir))
+            == FailureReason.RETURN
+        )
 
 
 @pytest.mark.asyncio
@@ -381,8 +392,10 @@ async def test_execute_run_passes_env_vars_to_subprocess(
 
     worker = _ready_worker(tmp_path / "worker", definition, archive_path)
 
-    assert await worker.execute_run() is None
-    assert (worker.execution_dir / "stdout").read_text() == "hello"
+    with TemporaryDirectory() as exec_dir:
+        exec_path = Path(exec_dir)
+        assert await worker.execute_run(execution_dir=exec_path) is None
+        assert (exec_path / "stdout").read_text() == "hello"
 
 
 @pytest.mark.asyncio
@@ -390,28 +403,14 @@ async def test_worker_raises_no_run_error_when_idle(tmp_path: Path) -> None:
     """Run-dependent methods raise NoRunError when no run is assigned."""
     worker = _idle_worker(tmp_path / "worker")
 
+    dummy_dir = tmp_path / "worker"
     with pytest.raises(NoRunError):
-        await worker.execute_run()
+        await worker.execute_run(execution_dir=dummy_dir)
     with pytest.raises(NoRunError):
-        await worker.prepare_run_environment()
+        await worker.prepare_run_environment(execution_dir=dummy_dir)
     with pytest.raises(NoRunError):
-        await worker.collect_results()
+        await worker.collect_results(execution_dir=dummy_dir)
     with pytest.raises(NoRunError):
         await worker.upload_results()
     with pytest.raises(NoRunError):
         await worker.report_error()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_wipes_execution_dir(tmp_path: Path) -> None:
-    """Cleanup empties execution_dir but keeps the directory itself."""
-    worker = _idle_worker(tmp_path / "worker")
-    (worker.execution_dir / "junk.txt").write_text("data")
-    nested = worker.execution_dir / "nested"
-    nested.mkdir()
-    (nested / "more.txt").write_text("more")
-
-    await worker.cleanup()
-
-    assert worker.execution_dir.is_dir()
-    assert list(worker.execution_dir.iterdir()) == []
