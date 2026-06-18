@@ -10,6 +10,8 @@ from pydantic import BaseModel, field_validator
 from tomlkit import load
 
 from mprun import DEFAULT_CONFIG_DIRS, DEFAULT_DATA_DIRS, AppPaths
+from mprun.custom_types import WorkerBackend
+from mprun.models import WorkerRegistration
 
 
 class WorkerConfig(BaseModel):
@@ -19,6 +21,7 @@ class WorkerConfig(BaseModel):
     name: str
     home_directory: Path = DEFAULT_DATA_DIRS.user / "worker"
     log_level: int = logging.INFO
+    backend: WorkerBackend = WorkerBackend.NATIVE
 
     @field_validator("server_address", mode="before")
     @classmethod
@@ -50,6 +53,10 @@ class WorkerConfig(BaseModel):
             return v
         msg = f"log_level must be str or int, got {type(v)}"
         raise ValueError(msg)
+
+    def get_registration_data(self) -> WorkerRegistration:
+        """Extracts the relevant data that needs to be sent to the server for registration."""
+        return WorkerRegistration(name=self.name, backend=self.backend)
 
 
 DEFAULT_WORKER_CONFIG_PATHS = AppPaths(

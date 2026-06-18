@@ -15,7 +15,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.custom_types import ActiveState, FailureReason, SuccessState
+from mprun.custom_types import ActiveState, FailureReason, SuccessState, WorkerBackend
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -23,6 +23,7 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
     WorkerData,
+    WorkerRegistration,
     WorkerState,
 )
 from mprun.server import DATA_PATH_ENV, server
@@ -49,7 +50,10 @@ def _post_experiment(
 
 def _register_worker(client: TestClient, name: str = "testworker") -> WorkerData:
     """Register a worker and return its data."""
-    response = client.post("/workers", params={"name": name})
+    registration_data = WorkerRegistration(name=name, backend=WorkerBackend.NATIVE)
+    response = client.post(
+        "/workers", data={"registration": registration_data.model_dump_json()}
+    )
     response.raise_for_status()
     return WorkerData.model_validate(response.json())
 
@@ -75,10 +79,16 @@ class TestWorkers:
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
-                response = client.post("/workers", params={"name": name})
+                registration_data = WorkerRegistration(
+                    name=name, backend=WorkerBackend.NATIVE
+                )
+                response = client.post(
+                    "/workers",
+                    data={"registration": registration_data.model_dump_json()},
+                )
                 assert response.status_code == HTTPStatus.CREATED
                 worker = WorkerData.model_validate(response.json())
-                assert worker.name == name
+                assert worker.registration_data.name == name
 
     @given(names=st.lists(elements=st.text()))
     def test_worker_list(self, names: list[str]) -> None:
@@ -92,7 +102,13 @@ class TestWorkers:
 
             with TestClient(server) as client:
                 for name in names:
-                    response = client.post("/workers", params={"name": name})
+                    registration_data = WorkerRegistration(
+                        name=name, backend=WorkerBackend.NATIVE
+                    )
+                    response = client.post(
+                        "/workers",
+                        data={"registration": registration_data.model_dump_json()},
+                    )
                     assert response.status_code == HTTPStatus.CREATED
 
                 response = client.get("/workers")
@@ -112,7 +128,13 @@ class TestWorkers:
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
-                response = client.post("/workers", params={"name": name})
+                registration_data = WorkerRegistration(
+                    name=name, backend=WorkerBackend.NATIVE
+                )
+                response = client.post(
+                    "/workers",
+                    data={"registration": registration_data.model_dump_json()},
+                )
                 assert response.status_code == HTTPStatus.CREATED
                 worker = WorkerData.model_validate(response.json())
 
@@ -478,9 +500,7 @@ class TestRuns:
                 response.raise_for_status()
                 experiment = Experiment.model_validate(response.json())
 
-                response = client.post("/workers", params={"name": "testworker"})
-                response.raise_for_status()
-                worker = WorkerData.model_validate(response.json())
+                worker = _register_worker(client=client)
 
                 response = client.get("/runs/dispatch", params={"wid": worker.wid})
                 response.raise_for_status()
@@ -525,9 +545,7 @@ class TestRuns:
                 )
                 response.raise_for_status()
 
-                response = client.post("/workers", params={"name": "testworker"})
-                response.raise_for_status()
-                worker = WorkerData.model_validate(response.json())
+                worker = _register_worker(client=client)
 
                 response = client.get("/runs/dispatch", params={"wid": worker.wid})
                 response.raise_for_status()
@@ -718,9 +736,7 @@ class TestRuns:
                 )
                 response.raise_for_status()
 
-                response = client.post("/workers", params={"name": "testworker"})
-                response.raise_for_status()
-                worker = WorkerData.model_validate(response.json())
+                worker = _register_worker(client=client)
 
                 response = client.get("/runs/dispatch", params={"wid": worker.wid})
                 response.raise_for_status()

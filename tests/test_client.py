@@ -12,12 +12,13 @@ from fastapi.testclient import TestClient
 
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client.client import delete_experiment, purge_dead_workers, reset_run
-from mprun.custom_types import ActiveState, RunId, SuccessState
+from mprun.custom_types import ActiveState, RunId, SuccessState, WorkerBackend
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
     ExperimentDefinition,
+    WorkerRegistration,
 )
 from mprun.server import DATA_PATH_ENV, server
 from mprun.worker_manager import WORKER_TIMEOUT
@@ -87,7 +88,12 @@ async def test_delete_experiment_missing(tmp_path: Path) -> None:
 async def test_purge_dead_workers(tmp_path: Path) -> None:
     """purge_dead_workers() removes dead workers from the server."""
     async with _patched_async_client(tmp_path) as (tc, async_client):
-        response = tc.post("/workers", params={"name": "doomed"})
+        registration_data = WorkerRegistration(
+            name="doomed", backend=WorkerBackend.NATIVE
+        )
+        response = tc.post(
+            "/workers", data={"registration": registration_data.model_dump_json()}
+        )
         response.raise_for_status()
         worker = response.json()
 

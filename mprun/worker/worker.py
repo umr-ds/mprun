@@ -29,6 +29,7 @@ from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     Run,
     WorkerData,
+    WorkerRegistration,
 )
 from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.backends import Backend, NativeBackend
@@ -84,12 +85,14 @@ class Worker:
         self.archive_path = self.home_dir / EXPERIMENT_ARCHIVE_NAME
 
     @staticmethod
-    async def register(client: AsyncClient, name: str) -> WorkerData:
+    async def register(
+        client: AsyncClient, registration_data: WorkerRegistration
+    ) -> WorkerData:
         """Register this worker with the server.
 
         Args:
             client (AsyncClient): HTTP client configured with the server's base URL.
-            name (str): Human-readable name to register under.
+            registration_data (WorkerRegistration): Data provided by the worker for registration.
 
         Returns:
             WorkerData: Worker metadata returned by the server on successful registration.
@@ -98,7 +101,10 @@ class Worker:
             HTTPStatusError: If the server returns a non-2xx response.
         """
         logger.info("Registering with server")
-        response = await client.post("/workers", params={"name": name})
+        response = await client.post(
+            "/workers",
+            data={"registration": registration_data.model_dump_json()},
+        )
         response.raise_for_status()
 
         worker_data = WorkerData.model_validate(response.json())
@@ -138,13 +144,10 @@ class Worker:
         return worker_data
 
     @classmethod
-    async def init(cls, server_address: str, name: str, config: WorkerConfig) -> Worker:
+    async def init(cls, config: WorkerConfig) -> Worker:
         """Create and register a new Worker with the server.
 
         Args:
-            server_address (str): Base URL of the server. An ``http://`` prefix is added if
-                absent.
-            name (str): Human-readable worker name passed to the server on registration.
             config (WorkerConfig): Worker configuration.
 
         Returns:
@@ -157,7 +160,7 @@ class Worker:
         """
         logger.info("Initialising worker")
 
-        client = AsyncClient(base_url=server_address)
+        client = AsyncClient(base_url=config.server_address)
 
         config.home_directory.mkdir(parents=True, exist_ok=True)
         meta_data_path = config.home_directory / METADATA_FILE_NAME
@@ -166,7 +169,9 @@ class Worker:
         if not await to_thread(
             meta_data_path.is_file
         ):  # no saved registration data available -> register new worker
-            meta_data = await Worker.register(client=client, name=name)
+            meta_data = await Worker.register(
+                client=client, registration_data=config.get_registration_data()
+            )
             with meta_data_path.open("w") as f:
                 await to_thread(f.write, meta_data.model_dump_json())
             return cls(
@@ -177,9 +182,9 @@ class Worker:
             data = await to_thread(f.read)
             meta_data = WorkerData.model_validate_json(json_data=data)
 
-        if meta_data.name != config.name:
+        if meta_data.registration_data.name != config.name:
             raise InconsistentConfigurationError(
-                name="name", expected=meta_data.name, got=config.name
+                name="name", expected=meta_data.registration_data.name, got=config.name
             )
 
         w_dat = await Worker.revive(client=client, wid=meta_data.wid)
@@ -211,7 +216,7 @@ class Worker:
                 with TemporaryDirectory(delete=True) as tmp_dir:
                     execution_dir = Path(tmp_dir)
                     backend: Backend
-                    match self.meta_data.backend:
+                    match self.meta_data.registration_data.backend:
                         case WorkerBackend.NATIVE:
                             backend = NativeBackend(
                                 run=self.working,
@@ -386,11 +391,9 @@ class Worker:
         self.meta_data.last_check_in = time()
 
 
-async def _run(server_address: str, config: WorkerConfig) -> None:
+async def _run(config: WorkerConfig) -> None:
     try:
-        worker = await Worker.init(
-            server_address=server_address, name=config.name, config=config
-        )
+        worker = await Worker.init(config=config)
     except HTTPStatusError as err:
         logger.critical("Worker registration failed: %s", err, exc_info=True)
         raise Exit(1) from err
@@ -425,12 +428,7 @@ def main(
     cfg = load_worker_config(cfg_path)
     configure_logging(cfg.log_level)
 
-    asyncio.run(
-        _run(
-            server_address=cfg.server_address,
-            config=cfg,
-        )
-    )
+    asyncio.run(_run(config=cfg))
 
 
 if __name__ == "__main__":

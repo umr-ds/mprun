@@ -15,7 +15,7 @@ from tinydb.table import Table
 
 from mprun.custom_types import RunId
 from mprun.errors import NoSuchRunError, NoSuchWorkerError, WorkerNotDeadError
-from mprun.models import WorkerData, WorkerState
+from mprun.models import WorkerData, WorkerRegistration, WorkerState
 
 logger = logging.getLogger(__name__)
 
@@ -109,19 +109,19 @@ class WorkerManager:
             docs = await to_thread(self._workers_table.all)
             return [WorkerData.model_validate(doc) for doc in docs]
 
-    async def register(self, name: str) -> WorkerData:
+    async def register(self, registration_data: WorkerRegistration) -> WorkerData:
         """Register a new worker and return its metadata.
 
         Assigns a unique UUID-derived ID, retrying on the rare chance of a collision.
 
         Args:
-            name (str): Human-readable name for the new worker.
+            registration_data (WorkerRegistration): Data provided by the worker for registration.
 
         Returns:
             WorkerData: Metadata for the newly registered worker.
         """
         async with self._state_mutex:
-            worker = WorkerData.new(name=name)
+            worker = WorkerData.new(registration_data=registration_data)
 
             # just in case we happen to roll a UUID that already exists
             while worker.wid in self._workers:
@@ -276,7 +276,7 @@ class WorkerManager:
                 logger.info(
                     "Garbage-collected dead worker %d (%s)",
                     wid,
-                    worker.name,
+                    worker.registration_data.name,
                 )
 
         for wid in dead_wids:

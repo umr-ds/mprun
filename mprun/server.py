@@ -37,7 +37,14 @@ from mprun.errors import (
 )
 from mprun.experiment_manager import ExperimentManager
 from mprun.log import configure_logging
-from mprun.models import Experiment, ExperimentDefinition, Run, WorkerData, WorkerState
+from mprun.models import (
+    Experiment,
+    ExperimentDefinition,
+    Run,
+    WorkerData,
+    WorkerRegistration,
+    WorkerState,
+)
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
@@ -328,13 +335,14 @@ async def reset_run(
 
 @server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
 async def register_worker(
-    name: str,
+    registration: str = Form(...),
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> WorkerData:
     """Register a new worker."""
     logger.debug("Received worker registration request")
 
-    return await wm.register(name=name)
+    registration_data = WorkerRegistration.model_validate_json(registration)
+    return await wm.register(registration_data=registration_data)
 
 
 @server.get("/workers", response_model=list[WorkerData])

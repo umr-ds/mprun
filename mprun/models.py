@@ -772,35 +772,49 @@ class WorkerState(StrEnum):
     DEAD = "DEAD"
 
 
+class WorkerRegistration(BaseModel):
+    """Data provided by the worker for registration.
+
+    Will be saved as part of ``WorkerData``.
+
+    Attributes:
+        name (str): Human-readable name. Not required to be unique, but uniqueness is encouraged.
+        backend (WorkerBackend): Worker's execution backend.
+    """
+
+    name: str
+    backend: WorkerBackend
+
+
 class WorkerData(BaseModel):
     """A registered worker.
 
     Attributes:
         wid (int): Unique worker identifier. Integer representation of a UUID4.
-        name (str): Human-readable name. Not required to be unique, but uniqueness is encouraged.
         state (WorkerState): Current worker state. See ``WorkerState`` for semantics.
         last_check_in (float): Unix timestamp of the worker's most recent check-in.
         run (RunId | None): ID of the run currently assigned to this worker, or ``None`` if idle.
-        backend (WorkerBackend): Worker's execution backend.
     """
 
+    registration_data: WorkerRegistration
     wid: int
-    name: str
     state: WorkerState
     last_check_in: float
     run: RunId | None = None
-    backend: WorkerBackend = WorkerBackend.NATIVE
 
     @classmethod
-    def new(cls, name: str) -> WorkerData:
+    def new(cls, registration_data: WorkerRegistration) -> WorkerData:
         """Create a new worker with a fresh UUID and IDLE state.
 
         Args:
-            name (str): Human-readable name for the worker. Not required to be unique.
+            registration_data (WorkerRegistration): Data provided by the worker for registration.
 
         Returns:
             WorkerData: Newly created worker in IDLE state with ``last_check_in`` set to now.
         """
         return WorkerData(
-            wid=uuid4().int, name=name, state=WorkerState.IDLE, last_check_in=time()
+            registration_data=registration_data,
+            wid=uuid4().int,
+            state=WorkerState.IDLE,
+            last_check_in=time(),
         )

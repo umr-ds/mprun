@@ -8,8 +8,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from mprun.custom_types import WorkerBackend
 from mprun.errors import NoSuchWorkerError, WorkerNotDeadError
-from mprun.models import WorkerData, WorkerState
+from mprun.models import WorkerData, WorkerRegistration, WorkerState
 from mprun.worker_manager import WORKER_TIMEOUT, WorkerManager
 
 
@@ -28,9 +29,12 @@ async def test_worker_register(name: str) -> None:
         )
         assert not manager._workers
 
-        worker = await manager.register(name=name)
+        worker_registration = WorkerRegistration(
+            name=name, backend=WorkerBackend.NATIVE
+        )
+        worker = await manager.register(registration_data=worker_registration)
         assert isinstance(worker, WorkerData)
-        assert worker.name == name
+        assert worker.registration_data.name == name
 
         assert worker.wid in manager._workers
         assert worker == manager._workers[worker.wid]
@@ -45,7 +49,11 @@ async def test_worker_checkin(name: str) -> None:
         manager = WorkerManager(
             data_path=test_directory, dead_worker_callback=dummy_callback
         )
-        worker = await manager.register(name=name)
+
+        worker_registration = WorkerRegistration(
+            name=name, backend=WorkerBackend.NATIVE
+        )
+        worker = await manager.register(registration_data=worker_registration)
 
         checkin_time = worker.last_check_in
         await manager.check_in(worker.wid)
@@ -68,7 +76,10 @@ async def test_evict_dead_worker_from_memory(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name=name)
+            worker_registration = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
 
             await manager._collect_garbage()
@@ -92,7 +103,10 @@ async def test_evicted_worker_persisted_as_dead(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name=name)
+            worker_registration = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
             wid = worker.wid
             worker.last_check_in = stale
 
@@ -119,7 +133,10 @@ async def test_evicted_worker_raises_on_get(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name=name)
+            worker_registration = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
             wid = worker.wid
             worker.last_check_in = stale
 
@@ -143,7 +160,10 @@ async def test_live_worker_not_evicted(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name=name)
+            worker_registration = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
 
             await manager._collect_garbage()
 
@@ -165,7 +185,10 @@ async def test_checkin_prevents_eviction(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name=name)
+            worker_registration = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
 
             mock_time.return_value = now + 1
@@ -192,8 +215,14 @@ async def test_only_stale_workers_evicted(name: str) -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            live = await manager.register(name=f"{name}-live")
-            dead = await manager.register(name=f"{name}-dead")
+            worker_registration = WorkerRegistration(
+                name=f"{name}-live", backend=WorkerBackend.NATIVE
+            )
+            live = await manager.register(registration_data=worker_registration)
+            worker_registration = WorkerRegistration(
+                name=f"{name}-dead", backend=WorkerBackend.NATIVE
+            )
+            dead = await manager.register(registration_data=worker_registration)
             dead.last_check_in = stale
 
             await manager._collect_garbage()
@@ -211,7 +240,10 @@ async def test_revive_returns_worker() -> None:
             data_path=test_directory, dead_worker_callback=dummy_callback
         )
 
-        worker = await manager.register(name="testworker")
+        worker_registration = WorkerRegistration(
+            name="testworker", backend=WorkerBackend.NATIVE
+        )
+        worker = await manager.register(registration_data=worker_registration)
 
         with patch("mprun.worker_manager.time") as mock_time:
             now = 1000.0
@@ -222,7 +254,7 @@ async def test_revive_returns_worker() -> None:
         revived = await manager.revive(wid=worker.wid)
         assert revived.wid == worker.wid
         assert revived.state == WorkerState.IDLE
-        assert revived.name == "testworker"
+        assert revived.registration_data.name == "testworker"
         assert revived.wid in manager._workers
 
 
@@ -248,7 +280,10 @@ async def test_revive_alive_worker() -> None:
             data_path=test_directory, dead_worker_callback=dummy_callback
         )
 
-        worker = await manager.register(name="testworker")
+        worker_registration = WorkerRegistration(
+            name="testworker", backend=WorkerBackend.NATIVE
+        )
+        worker = await manager.register(registration_data=worker_registration)
 
         with pytest.raises(WorkerNotDeadError):
             await manager.revive(wid=worker.wid)
@@ -268,7 +303,10 @@ async def test_purge_removes_dead_workers() -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            worker = await manager.register(name="doomed")
+            worker_registration = WorkerRegistration(
+                name="doomed", backend=WorkerBackend.NATIVE
+            )
+            worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
             await manager._collect_garbage()
 
@@ -294,8 +332,14 @@ async def test_purge_does_not_affect_alive_workers() -> None:
 
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
-            alive = await manager.register(name="alive")
-            dead = await manager.register(name="dead")
+            worker_registration = WorkerRegistration(
+                name="alive", backend=WorkerBackend.NATIVE
+            )
+            alive = await manager.register(registration_data=worker_registration)
+            worker_registration = WorkerRegistration(
+                name="dead", backend=WorkerBackend.NATIVE
+            )
+            dead = await manager.register(registration_data=worker_registration)
             dead.last_check_in = stale
             await manager._collect_garbage()
 
@@ -315,7 +359,10 @@ async def test_purge_empty_noop() -> None:
             data_path=test_directory, dead_worker_callback=dummy_callback
         )
 
-        worker = await manager.register(name="only_worker")
+        worker_registration = WorkerRegistration(
+            name="only_worker", backend=WorkerBackend.NATIVE
+        )
+        worker = await manager.register(registration_data=worker_registration)
 
         await manager.purge()
 

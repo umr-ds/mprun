@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from hypothesis import given
 from hypothesis import strategies as st
 
+from mprun.custom_types import WorkerBackend
 from mprun.errors import NoRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -20,6 +21,7 @@ from mprun.models import (
     Run,
     SuccessState,
     WorkerData,
+    WorkerRegistration,
 )
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import RESULTS_ARCHIVE_NAME
@@ -30,7 +32,11 @@ def _idle_worker(home_dir: Path) -> Worker:
     """Build a Worker with no assigned run."""
     return Worker(
         http_client=AsyncClient(),
-        meta_data=WorkerData.new(name="testworker"),
+        meta_data=WorkerData.new(
+            registration_data=WorkerRegistration(
+                name="testworker", backend=WorkerBackend.NATIVE
+            )
+        ),
         home_dir=home_dir,
     )
 
@@ -51,9 +57,14 @@ async def test_register(name: str) -> None:
                 transport=ASGITransport(app=server), base_url="http://test"
             ) as client,
         ):
-            worker = await Worker.register(client=client, name=name)
+            registration_data = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            worker = await Worker.register(
+                client=client, registration_data=registration_data
+            )
             assert isinstance(worker, WorkerData)
-            assert worker.name == name
+            assert worker.registration_data.name == name
 
 
 @pytest.mark.asyncio
@@ -73,7 +84,12 @@ async def test_checkin(name: str) -> None:
             ) as client,
         ):
             home_dir = Path(data_dir) / "worker"
-            metadata = await Worker.register(client=client, name=name)
+            registration_data = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            metadata = await Worker.register(
+                client=client, registration_data=registration_data
+            )
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
             await worker.check_in()
 
@@ -94,7 +110,12 @@ async def test_get_run(
             ) as client,
         ):
             home_dir = tmp_path / "worker"
-            metadata = await Worker.register(client=client, name="test_worker")
+            registration_data = WorkerRegistration(
+                name="test_worker", backend=WorkerBackend.NATIVE
+            )
+            metadata = await Worker.register(
+                client=client, registration_data=registration_data
+            )
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
             assert worker.working is None
@@ -140,7 +161,12 @@ async def test_results_upload(
             ) as client,
         ):
             home_dir = tmp_path / "worker"
-            metadata = await Worker.register(client=client, name="test_worker")
+            registration_data = WorkerRegistration(
+                name="test_worker", backend=WorkerBackend.NATIVE
+            )
+            metadata = await Worker.register(
+                client=client, registration_data=registration_data
+            )
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
             definition, experiment_dir = make_experiment()
@@ -199,7 +225,12 @@ async def test_report_error(
             ) as client,
         ):
             home_dir = tmp_path / "worker"
-            metadata = await Worker.register(client=client, name="test_worker")
+            registration_data = WorkerRegistration(
+                name="test_worker", backend=WorkerBackend.NATIVE
+            )
+            metadata = await Worker.register(
+                client=client, registration_data=registration_data
+            )
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
             definition, experiment_dir = make_experiment()

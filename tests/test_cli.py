@@ -18,13 +18,14 @@ from typer.testing import CliRunner
 import mprun.client.cli
 from mprun import SERVER_ADDRESS_ENV
 from mprun.client.cli import client
-from mprun.custom_types import ActiveState, SuccessState
+from mprun.custom_types import ActiveState, SuccessState, WorkerBackend
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
     ExperimentDefinition,
     Run,
+    WorkerRegistration,
 )
 from mprun.server import DATA_PATH_ENV, server
 from mprun.worker_manager import WORKER_TIMEOUT
@@ -81,7 +82,10 @@ def _dispatch_and_submit(
     http_client: TestClient, results_payload: bytes = b"ok"
 ) -> Run:
     """Register a worker, dispatch a run, submit dummy results, return the run."""
-    response = http_client.post("/workers", params={"name": "w"})
+    registration_data = WorkerRegistration(name="w", backend=WorkerBackend.NATIVE)
+    response = http_client.post(
+        "/workers", data={"registration": registration_data.model_dump_json()}
+    )
     response.raise_for_status()
     wid = response.json()["wid"]
 
@@ -245,7 +249,12 @@ def test_purge_workers(
 ) -> None:
     """``purge`` removes dead workers and prints confirmation."""
     with _patched_client(tmp_path) as http_client:
-        response = http_client.post("/workers", params={"name": "doomed"})
+        registration_data = WorkerRegistration(
+            name="doomed", backend=WorkerBackend.NATIVE
+        )
+        response = http_client.post(
+            "/workers", data={"registration": registration_data.model_dump_json()}
+        )
         response.raise_for_status()
         worker = response.json()
 
