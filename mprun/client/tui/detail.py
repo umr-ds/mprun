@@ -11,8 +11,8 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
-from mprun.client.client import download_run_results, reset_run
-from mprun.client.tui import REFRESH_TIME, _fmt_duration, _fmt_ts
+from mprun.client.client import _fmt_duration, _fmt_ts, download_run_results, reset_run
+from mprun.client.tui import REFRESH_TIME
 from mprun.client.tui.confirmations import ConfirmDownloadDialogue, ConfirmResetDialogue
 from mprun.custom_types import RunId
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from textual.app import App
@@ -12,23 +11,6 @@ from mprun import SERVER_ADDRESS_ENV
 from mprun.client.client import DEFAULT_URL
 
 REFRESH_TIME: float = 30.0
-
-
-def _fmt_ts(ts: float | None) -> str:
-    if ts is None:
-        return "—"
-    return (
-        datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    )
-
-
-def _fmt_duration(started: float | None, finished: float | None) -> str:
-    if started is None or finished is None:
-        return "—"
-    delta = finished - started
-    if delta < 0:
-        return "—"
-    return str(timedelta(seconds=int(delta)))
 
 
 class ExperimentTui(App[None]):

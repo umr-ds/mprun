@@ -5,7 +5,6 @@
 import asyncio
 import functools
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from lzma import LZMAError
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,8 @@ from typer import Argument, Context, Exit, Option, Typer, confirm, echo
 
 from mprun.client.client import (
     _client_factory,
+    _fmt_duration,
+    _fmt_ts,
     delete_experiment,
     download_run_results,
     get_experiment_results,
@@ -41,23 +42,6 @@ def _async_command(f: Callable[..., Any]) -> Callable[..., Any]:
         return asyncio.run(f(*args, **kwargs))
 
     return wrapper
-
-
-def _fmt_ts(ts: float | None) -> str:
-    if ts is None:
-        return "—"
-    return (
-        datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    )
-
-
-def _fmt_duration(started: float | None, finished: float | None) -> str:
-    if started is None or finished is None:
-        return "—"
-    delta = finished - started
-    if delta < 0:
-        return "—"
-    return str(timedelta(seconds=int(delta)))
 
 
 def _echo_create_experiment_http_error(err: HTTPStatusError) -> None:

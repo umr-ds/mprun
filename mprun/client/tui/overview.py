@@ -14,8 +14,13 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
-from mprun.client.client import delete_experiment, get_experiment_results
-from mprun.client.tui import REFRESH_TIME, _fmt_duration, _fmt_ts
+from mprun.client.client import (
+    _fmt_duration,
+    _fmt_ts,
+    delete_experiment,
+    get_experiment_results,
+)
+from mprun.client.tui import REFRESH_TIME
 from mprun.client.tui.confirmations import (
     ConfirmDeleteDialogue,
     ConfirmDownloadDialogue,

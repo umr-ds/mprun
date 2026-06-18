@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from httpx import AsyncClient, HTTPStatusError, codes
@@ -12,6 +13,23 @@ from mprun.custom_types import RunId
 from mprun.models import Experiment, ExperimentDefinition, Run, ValidationMode
 
 DEFAULT_URL = "http://localhost:8000"
+
+
+def _fmt_ts(ts: float | None) -> str:
+    if ts is None:
+        return "—"
+    return (
+        datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    )
+
+
+def _fmt_duration(started: float | None, finished: float | None) -> str:
+    if started is None or finished is None:
+        return "—"
+    delta = finished - started
+    if delta < 0:
+        return "—"
+    return str(timedelta(seconds=int(delta)))
 
 
 def _default_client_factory(

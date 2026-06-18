@@ -10,8 +10,8 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
-from mprun.client.client import purge_dead_workers
-from mprun.client.tui import REFRESH_TIME, _fmt_ts
+from mprun.client.client import _fmt_ts, purge_dead_workers
+from mprun.client.tui import REFRESH_TIME
 from mprun.client.tui.confirmations import ConfirmPurgeDialogue
 from mprun.models import WorkerData
 
