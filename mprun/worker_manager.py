@@ -241,6 +241,12 @@ class WorkerManager:
             self._workers[worker.wid] = worker
             return worker
 
+    async def purge(self) -> None:
+        """Delete all dead workers permanently."""
+        async with self._state_mutex:
+            q = Query()
+            await to_thread(self._workers_table.remove, q.state == WorkerState.DEAD)
+
     async def _gc_loop(self) -> None:
         """Background task that periodically evicts stale workers."""
         try:

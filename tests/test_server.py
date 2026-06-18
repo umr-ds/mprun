@@ -194,6 +194,46 @@ class TestWorkers:
                 response = client.post(f"/workers/revive/{worker.wid}")
                 assert response.status_code == HTTPStatus.CONFLICT
 
+    @pytest.mark.asyncio
+    async def test_purge_dead_workers(self, tmp_path: Path) -> None:
+        """DELETE /workers/dead removes dead workers permanently."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                worker = _register_worker(client)
+
+                app = cast(Any, client.app)
+                wm = app.state.worker_manager
+                with patch("mprun.worker_manager.time") as mock_time:
+                    mock_time.return_value = worker.last_check_in + WORKER_TIMEOUT + 1
+                    await wm._collect_garbage()
+
+                response = client.delete("/workers/dead")
+                assert response.status_code == HTTPStatus.OK
+
+                response = client.get("/workers")
+                assert response.status_code == HTTPStatus.OK
+                workers = [WorkerData.model_validate(j) for j in response.json()]
+                assert not any(w.wid == worker.wid for w in workers)
+
+    @pytest.mark.asyncio
+    async def test_purge_no_dead_workers(self, tmp_path: Path) -> None:
+        """DELETE /workers/dead returns 200 even when no dead workers exist."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            mp.setenv(SERVER_ADDRESS_ENV, "8086")
+
+            with TestClient(server) as client:
+                worker = _register_worker(client)
+
+                response = client.delete("/workers/dead")
+                assert response.status_code == HTTPStatus.OK
+
+                response = client.get(f"/workers/{worker.wid}")
+                assert response.status_code == HTTPStatus.OK
+
 
 class TestExperiments:
     """Tests for Experiment-related endpoints."""

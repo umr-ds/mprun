@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
+from typing import Any, cast
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -25,6 +27,7 @@ from mprun.models import (
     Run,
 )
 from mprun.server import DATA_PATH_ENV, server
+from mprun.worker_manager import WORKER_TIMEOUT
 
 runner = CliRunner()
 
@@ -235,3 +238,45 @@ def test_get_results_missing_experiment(tmp_path: Path) -> None:
     with _patched_client(tmp_path):
         result = runner.invoke(client, ["get-results", "99999"])
     assert result.exit_code == 1
+
+
+def test_purge_workers(
+    tmp_path: Path,
+) -> None:
+    """``purge`` removes dead workers and prints confirmation."""
+    with _patched_client(tmp_path) as http_client:
+        response = http_client.post("/workers", params={"name": "doomed"})
+        response.raise_for_status()
+        worker = response.json()
+
+        app = cast(Any, http_client.app)
+        wm = app.state.worker_manager
+
+        loop = asyncio.new_event_loop()
+        try:
+
+            async def _gc() -> None:
+                with patch("mprun.worker_manager.time") as mock_time:
+                    mock_time.return_value = (
+                        worker["last_check_in"] + WORKER_TIMEOUT + 1
+                    )
+                    await wm._collect_garbage()
+
+            loop.run_until_complete(_gc())
+        finally:
+            loop.close()
+
+        result = runner.invoke(client, ["purge"])
+
+    assert result.exit_code == 0
+    assert "Purged dead workers" in result.output
+
+
+def test_purge_workers_empty(
+    tmp_path: Path,
+) -> None:
+    """``purge`` succeeds even when no dead workers exist."""
+    with _patched_client(tmp_path):
+        result = runner.invoke(client, ["purge"])
+    assert result.exit_code == 0
+    assert "Purged dead workers" in result.output

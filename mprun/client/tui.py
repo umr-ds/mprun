@@ -25,6 +25,7 @@ from mprun.client.client import (
     delete_experiment,
     download_run_results,
     get_experiment_results,
+    purge_dead_workers,
     reset_run,
     submit_experiment,
 )
@@ -161,6 +162,35 @@ class ConfirmResetDialogue(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         """Cancel reset."""
+        confirmed: bool = False
+        self.dismiss(confirmed)
+
+
+class ConfirmPurgeDialogue(ModalScreen[bool]):
+    """Confirmation dialogue for purging dead workers."""
+
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+        ("y", "confirm", "Yes"),
+        ("n", "cancel", "No"),
+        ("escape", "cancel", "No"),
+    ]
+
+    @override
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        with Vertical(id="confirm-dialog"):
+            yield Static(
+                "Purge all dead workers? This cannot be undone.\n\n"
+                "[bold][y][/bold][u]Y[/u]es[bold]/[n][/bold][u]N[/u]o"
+            )
+
+    def action_confirm(self) -> None:
+        """Confirm purge."""
+        confirmed: bool = True
+        self.dismiss(confirmed)
+
+    def action_cancel(self) -> None:
+        """Cancel purge."""
         confirmed: bool = False
         self.dismiss(confirmed)
 
@@ -935,6 +965,7 @@ class WorkerView(Screen[None]):
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("ctrl+r", "refresh", "Refresh"),
         ("g", "group", "Group"),
+        ("p", "purge", "Purge"),
         ("v", "view_mode", "View-Mode"),
         ("c", "create_mode", "Create-Mode"),
     ]
@@ -1081,6 +1112,32 @@ class WorkerView(Screen[None]):
         """Toggle grouping workers by state."""
         self._grouped = not self._grouped
         self.call_later(self._refresh)
+
+    def action_purge(self) -> None:
+        """Prompt for confirmation then purge dead workers."""
+
+        def on_confirm(result: object) -> None:
+            if result:
+                self.call_later(self._do_purge)
+
+        self.app.push_screen(ConfirmPurgeDialogue(), on_confirm)
+
+    async def _do_purge(self) -> None:
+        """Purge dead workers via the server and refresh the list."""
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url) as client:
+                await purge_dead_workers(client)
+        except httpx.HTTPStatusError as err:
+            self.notify(
+                f"Purge failed: HTTP {err.response.status_code}", severity="error"
+            )
+            return
+        except httpx.RequestError as err:
+            self.notify(f"Purge failed: {err}", severity="error")
+            return
+
+        self.notify("Purged dead workers")
+        await self._refresh()
 
     def action_view_mode(self) -> None:
         """Switch to View-Mode."""

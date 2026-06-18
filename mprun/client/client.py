@@ -188,6 +188,21 @@ async def submit_experiment(
     return Experiment.model_validate(resp.json()), resp.text
 
 
+async def purge_dead_workers(
+    http_client: AsyncClient,
+) -> None:
+    """Purge all dead workers from the server.
+
+    Args:
+        http_client (AsyncClient): HTTP client to use for the request.
+
+    Raises:
+        HTTPStatusError: If the server returns a non-2xx response.
+    """
+    resp = await http_client.delete("/workers/dead")
+    resp.raise_for_status()
+
+
 async def delete_experiment(
     http_client: AsyncClient,
     eid: int,

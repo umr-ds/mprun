@@ -386,6 +386,16 @@ async def revive_worker(
         raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=str(err)) from err
 
 
+@server.delete("/workers/dead")
+async def purge_dead_workers(
+    wm: WorkerManager = Depends(get_worker_manager),
+) -> Response:
+    """Purge all dead workers."""
+    logger.debug("Received worker purge request")
+    await wm.purge()
+    return Response(status_code=HTTPStatus.OK)
+
+
 @cli.command()
 def main(
     host: str = Option(

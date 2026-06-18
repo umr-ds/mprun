@@ -252,3 +252,73 @@ async def test_revive_alive_worker() -> None:
 
         with pytest.raises(WorkerNotDeadError):
             await manager.revive(wid=worker.wid)
+
+
+@pytest.mark.asyncio
+async def test_purge_removes_dead_workers() -> None:
+    """purge() permanently deletes dead workers from the database."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        now = 1000.0
+        stale = now - (WORKER_TIMEOUT + 1)
+
+        with patch("mprun.worker_manager.time") as mock_time:
+            mock_time.return_value = now
+            worker = await manager.register(name="doomed")
+            worker.last_check_in = stale
+            await manager._collect_garbage()
+
+            assert worker.state == WorkerState.DEAD
+
+            await manager.purge()
+
+            all_workers = await manager.get_all()
+            assert not any(w.wid == worker.wid for w in all_workers)
+
+
+@pytest.mark.asyncio
+async def test_purge_does_not_affect_alive_workers() -> None:
+    """purge() removes only dead workers, not alive ones."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        now = 1000.0
+        stale = now - (WORKER_TIMEOUT + 1)
+
+        with patch("mprun.worker_manager.time") as mock_time:
+            mock_time.return_value = now
+            alive = await manager.register(name="alive")
+            dead = await manager.register(name="dead")
+            dead.last_check_in = stale
+            await manager._collect_garbage()
+
+            await manager.purge()
+
+            all_workers = await manager.get_all()
+            assert any(w.wid == alive.wid for w in all_workers)
+            assert not any(w.wid == dead.wid for w in all_workers)
+
+
+@pytest.mark.asyncio
+async def test_purge_empty_noop() -> None:
+    """purge() with no dead workers is a no-op."""
+    with TemporaryDirectory(delete=True) as tmp_dir:
+        test_directory = Path(tmp_dir)
+        manager = WorkerManager(
+            data_path=test_directory, dead_worker_callback=dummy_callback
+        )
+
+        worker = await manager.register(name="only_worker")
+
+        await manager.purge()
+
+        all_workers = await manager.get_all()
+        assert len(all_workers) == 1
+        assert all_workers[0].wid == worker.wid

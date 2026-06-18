@@ -21,6 +21,7 @@ from mprun.client.client import (
     delete_experiment,
     download_run_results,
     get_experiment_results,
+    purge_dead_workers,
     reset_run,
     submit_experiment,
 )
@@ -298,6 +299,24 @@ async def delete_experiment_cmd(
         raise Exit(1) from err
 
     echo(f"Deleted experiment {eid}")
+
+
+@client.command("purge", help="Purge all dead workers. This cannot be undone.")
+@_async_command
+async def purge_workers_cmd(
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+) -> None:
+    """Purge all dead workers. This cannot be undone."""
+    try:
+        async with _client_factory(base_url) as http:
+            await purge_dead_workers(http_client=http)
+    except HTTPStatusError as err:
+        echo(f"HTTP error {err.response.status_code}: {err}", err=True)
+        raise Exit(1) from err
+
+    echo("Purged dead workers")
 
 
 @client.command("results", help="Download results archive for a specific run.")
