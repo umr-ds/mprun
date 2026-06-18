@@ -82,6 +82,7 @@ Run without a subcommand to open the interactive TUI. Pass a subcommand for non-
 | `get <eid> [-u URL] [-j]`                        | Show experiment and its runs                   |
 | `create <file.toml> [-u URL] [-j]`               | Submit experiment from TOML file               |
 | `delete <eid> [-u URL] [-y]`                     | Delete experiment (prompts unless `-y`)        |
+| `purge [-u URL]`                                 | Purge all dead workers (cannot be undone)      |
 | `results <eid>-<index>-<iter> [-o DIR] [-u URL]` | Download single run's result archive           |
 | `reset <eid>-<index>-<iter> [-u URL]`            | Reset a run (delete results, set to WAITING)   |
 | `get-results <eid> [-o DIR] [-u URL]`            | Download all result archives for an experiment |
@@ -95,7 +96,7 @@ Run without a subcommand to open the interactive TUI. Pass a subcommand for non-
 mprun_client          # opens TUI
 ```
 
-The TUI has three screens: **Over-View**, **Detail-View**, and **Create-Mode**.
+The TUI has four screens: **Over-View**, **Detail-View**, **Create-Mode**, and **Worker-View**.
 
 ##### Over-View (experiment list)
 
@@ -107,6 +108,7 @@ The TUI has three screens: **Over-View**, **Detail-View**, and **Create-Mode**.
 | `d`          | Download all results for selected experiment into `<cwd>/<eid>/` |
 | `Backspace`  | Delete selected experiment (confirmation required)               |
 | `c`          | Switch to Create-Mode                                            |
+| `w`          | Switch to Worker-View                                            |
 | `Ctrl+R`     | Refresh list now (auto-refreshes every 30 s)                     |
 | `q`          | Quit                                                             |
 
@@ -129,10 +131,22 @@ The TUI has three screens: **Over-View**, **Detail-View**, and **Create-Mode**.
 | `←`           | Go to parent directory                               |
 | `Enter` / `c` | Preview selected `.toml` file and confirm submission |
 | `y` / `n`     | Confirm or cancel submission in the preview dialogue |
-| `v`           | Switch back to Over-View                             |
+| `v`           | Switch to Over-View                                  |
+| `w`           | Switch to Worker-View                                |
 | `q`           | Quit                                                 |
 
 Non-TOML files and directories are dimmed; only `.toml` files can be submitted.
+
+##### Worker-View (registered workers list)
+
+| Key        | Action                                                       |
+|:-----------|:-------------------------------------------------------------|
+| `↑` / `↓`  | Navigate workers                                             |
+| `g`        | Toggle grouping by worker state                              |
+| `p`        | Purge all dead workers (confirmation required)               |
+| `v`        | Switch to Over-View                                          |
+| `c`        | Switch to Create-Mode                                        |
+| `Ctrl+R`   | Refresh now                                                  |
 
 ## Experiment creation
 
