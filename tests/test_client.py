@@ -1,11 +1,7 @@
-"""Tests for client module."""
+"""Tests for client helper functions."""
 
-import asyncio
-import json
-import zipfile
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from io import BytesIO
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -13,52 +9,34 @@ from unittest.mock import patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from typer.testing import CliRunner
 
-import mprun.client.cli
 from mprun import SERVER_ADDRESS_ENV
-from mprun.client.cli import client
-from mprun.custom_types import ActiveState, SuccessState
+from mprun.client.client import delete_experiment, purge_dead_workers, reset_run
+from mprun.custom_types import ActiveState, RunId, SuccessState
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
     ExperimentDefinition,
-    Run,
 )
 from mprun.server import DATA_PATH_ENV, server
 from mprun.worker_manager import WORKER_TIMEOUT
 
-runner = CliRunner()
 
-
-@contextmanager
-def _patched_client(tmp_path: Path) -> Iterator[TestClient]:
-    """Patch ``_client_factory`` in the cli module to talk to a FastAPI server via ASGITransport."""
+@asynccontextmanager
+async def _patched_async_client(
+    tmp_path: Path,
+) -> AsyncIterator[tuple[TestClient, httpx.AsyncClient]]:
+    """Set up a server and return both a sync TestClient and an async HTTP client."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
         mp.setenv(SERVER_ADDRESS_ENV, "8086")
         transport = httpx.ASGITransport(app=server)
-        async_client = httpx.AsyncClient(transport=transport, base_url="http://test")
-        with TestClient(server) as test_client:
-
-            def factory(
-                _url: str | None,
-            ) -> httpx.AsyncClient:
-                return async_client
-
-            mp.setattr(mprun.client.cli, "_client_factory", factory)
-            yield test_client
-
-        # Clean-up the async client.  Test functions are sync, so we cannot
-        # ``await aclose()``.  Create a fresh, temporary event loop just for
-        # closing.
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(async_client.aclose())
-            loop.close()
-        except Exception:  # noqa: BLE001
-            pass
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as async_client:
+            with TestClient(server) as test_client:
+                yield test_client, async_client
 
 
 def _post_experiment(
@@ -77,206 +55,99 @@ def _post_experiment(
     return Experiment.model_validate(response.json())
 
 
-def _dispatch_and_submit(
-    http_client: TestClient, results_payload: bytes = b"ok"
-) -> Run:
-    """Register a worker, dispatch a run, submit dummy results, return the run."""
-    response = http_client.post("/workers", params={"name": "w"})
-    response.raise_for_status()
-    wid = response.json()["wid"]
-
-    response = http_client.get("/runs/dispatch", params={"wid": wid})
-    response.raise_for_status()
-    run = Run.model_validate_json(response.headers["X-Run"], strict=True)
-    run.active_state = ActiveState.FINISHED
-    run.success_state = SuccessState.SUCCESS
-
-    buf = BytesIO()
-    with zipfile.ZipFile(buf, mode="w") as zf:
-        zf.writestr("result.txt", results_payload)
-    buf.seek(0)
-
-    response = http_client.post(
-        "/runs/result",
-        params={"wid": wid},
-        data={"run": run.model_dump_json()},
-        files={"results_archive": ("results.zip", buf, "application/zip")},
-    )
-    response.raise_for_status()
-    return run
-
-
-def test_create_experiment(
+@pytest.mark.asyncio
+async def test_delete_experiment(
     tmp_path: Path,
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
-    """Client ``create`` command posts the definition + archive and exits 0."""
-    _, directory = make_experiment()
-    toml_path = directory / EXPERIMENT_DEFINITION_NAME
-
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["create", str(toml_path)])
-    assert result.exit_code == 0
-
-
-def test_create_file_not_found(tmp_path: Path) -> None:
-    """``create`` exits 1 when the TOML path does not exist."""
-    result = runner.invoke(client, ["create", str(tmp_path / "missing.toml")])
-    assert result.exit_code == 1
-
-
-def test_create_invalid_toml(tmp_path: Path) -> None:
-    """``create`` exits 1 when the TOML is missing required fields."""
-    bad = tmp_path / "bad.toml"
-    bad.write_text('name = "exp"\n')  # missing executable, params, results
-    result = runner.invoke(client, ["create", str(bad)])
-    assert result.exit_code == 1
-
-
-def test_list_empty(tmp_path: Path) -> None:
-    """``list`` succeeds when there are no experiments."""
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["list"])
-    assert result.exit_code == 0
-
-
-def test_list_with_experiments(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """``list`` prints every created experiment by name."""
-    with _patched_client(tmp_path) as http_client:
-        for name in ("alpha", "beta"):
-            definition, directory = make_experiment(name=name)
-            archive_path = definition.create_archive(
-                experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-            )
-            _post_experiment(http_client, definition, archive_path)
-        result = runner.invoke(client, ["list"])
-    assert result.exit_code == 0
-    assert "alpha" in result.output
-    assert "beta" in result.output
-
-
-def test_list_json(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """``list --json`` emits a parseable JSON array of experiments."""
-    with _patched_client(tmp_path) as http_client:
+    """delete_experiment() removes the experiment from the server."""
+    async with _patched_async_client(tmp_path) as (tc, async_client):
         definition, directory = make_experiment(name="alpha")
         archive_path = definition.create_archive(
             experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
         )
-        _post_experiment(http_client, definition, archive_path)
-        result = runner.invoke(client, ["list", "--json"])
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert isinstance(payload, list)
-    assert payload[0]["name"] == "alpha"
+        experiment = _post_experiment(tc, definition, archive_path)
+
+        await delete_experiment(async_client, experiment.eid)
+
+        response = tc.get(f"/experiments/{experiment.eid}")
+        assert response.status_code == 404
 
 
-def test_get_happy(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """``get`` prints the requested experiment when it exists."""
-    with _patched_client(tmp_path) as http_client:
-        definition, directory = make_experiment(name="alpha")
-        archive_path = definition.create_archive(
-            experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-        )
-        experiment = _post_experiment(http_client, definition, archive_path)
-        result = runner.invoke(client, ["get", str(experiment.eid)])
-    assert result.exit_code == 0
-    assert "alpha" in result.output
+@pytest.mark.asyncio
+async def test_delete_experiment_missing(tmp_path: Path) -> None:
+    """delete_experiment() raises HTTPStatusError for an unknown eid."""
+    async with _patched_async_client(tmp_path) as (_tc, async_client):
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await delete_experiment(async_client, 99999)
+        assert exc_info.value.response.status_code == 404
 
 
-def test_get_missing(tmp_path: Path) -> None:
-    """``get`` exits 1 when no experiment with the given eid exists."""
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["get", "99999"])
-    assert result.exit_code == 1
-
-
-def test_results_invalid_run_id_format(tmp_path: Path) -> None:
-    """``results`` exits 1 on a malformed run ID."""
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["results", "not-a-run-id"])
-    assert result.exit_code == 1
-
-
-def test_results_download(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """``results`` downloads a submitted results archive into the output directory."""
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    with _patched_client(tmp_path) as http_client:
-        definition, directory = make_experiment(params={"x": [1]})  # one run
-        archive_path = definition.create_archive(
-            experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-        )
-        _post_experiment(http_client, definition, archive_path)
-        run = _dispatch_and_submit(http_client)
-
-        result = runner.invoke(
-            client,
-            ["results", f"{run.eid}-{run.index}-{run.iteration}", "-o", str(out_dir)],
-        )
-    assert result.exit_code == 0
-    saved = list(out_dir.iterdir())
-    assert len(saved) == 1
-    with zipfile.ZipFile(saved[0]) as zf:
-        assert "result.txt" in zf.namelist()
-
-
-def test_get_results_missing_experiment(tmp_path: Path) -> None:
-    """``get-results`` exits 1 when the experiment does not exist."""
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["get-results", "99999"])
-    assert result.exit_code == 1
-
-
-def test_purge_workers(
-    tmp_path: Path,
-) -> None:
-    """``purge`` removes dead workers and prints confirmation."""
-    with _patched_client(tmp_path) as http_client:
-        response = http_client.post("/workers", params={"name": "doomed"})
+@pytest.mark.asyncio
+async def test_purge_dead_workers(tmp_path: Path) -> None:
+    """purge_dead_workers() removes dead workers from the server."""
+    async with _patched_async_client(tmp_path) as (tc, async_client):
+        response = tc.post("/workers", params={"name": "doomed"})
         response.raise_for_status()
         worker = response.json()
 
-        app = cast(Any, http_client.app)
+        app = cast(Any, tc.app)
         wm = app.state.worker_manager
+        with patch("mprun.worker_manager.time") as mock_time:
+            mock_time.return_value = worker["last_check_in"] + WORKER_TIMEOUT + 1
+            await wm._collect_garbage()
 
-        loop = asyncio.new_event_loop()
-        try:
+        await purge_dead_workers(async_client)
 
-            async def _gc() -> None:
-                with patch("mprun.worker_manager.time") as mock_time:
-                    mock_time.return_value = (
-                        worker["last_check_in"] + WORKER_TIMEOUT + 1
-                    )
-                    await wm._collect_garbage()
-
-            loop.run_until_complete(_gc())
-        finally:
-            loop.close()
-
-        result = runner.invoke(client, ["purge"])
-
-    assert result.exit_code == 0
-    assert "Purged dead workers" in result.output
+        response = tc.get("/workers")
+        response.raise_for_status()
+        workers = response.json()
+        assert not any(w["wid"] == worker["wid"] for w in workers)
 
 
-def test_purge_workers_empty(
+@pytest.mark.asyncio
+async def test_purge_dead_workers_empty(tmp_path: Path) -> None:
+    """purge_dead_workers() succeeds with no dead workers."""
+    async with _patched_async_client(tmp_path) as (_tc, async_client):
+        await purge_dead_workers(async_client)
+
+
+@pytest.mark.asyncio
+async def test_reset_run(
     tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
-    """``purge`` succeeds even when no dead workers exist."""
-    with _patched_client(tmp_path):
-        result = runner.invoke(client, ["purge"])
-    assert result.exit_code == 0
-    assert "Purged dead workers" in result.output
+    """reset_run() returns a run to WAITING / PENDING state."""
+    async with _patched_async_client(tmp_path) as (tc, async_client):
+        definition, directory = make_experiment(params={"x": [1]})
+        archive_path = definition.create_archive(
+            experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+        )
+        experiment = _post_experiment(tc, definition, archive_path)
+
+        run = experiment.runs[0][0]
+        rid = RunId(eid=run.eid, index=run.index, iteration=run.iteration)
+
+        reset = await reset_run(async_client, rid)
+        assert reset.active_state == ActiveState.WAITING
+        assert reset.success_state == SuccessState.PENDING
+        assert reset.wid is None
+        assert reset.failure_reason is None
+
+
+@pytest.mark.asyncio
+async def test_reset_run_missing(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """reset_run() raises HTTPStatusError for an unknown run."""
+    async with _patched_async_client(tmp_path) as (tc, async_client):
+        definition, directory = make_experiment(params={"x": [1]})
+        archive_path = definition.create_archive(
+            experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+        )
+        _post_experiment(tc, definition, archive_path)
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await reset_run(async_client, RunId(eid=99999, index=0, iteration=0))
+        assert exc_info.value.response.status_code == 404
