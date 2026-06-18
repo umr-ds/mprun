@@ -289,3 +289,46 @@ def test_purge_workers_empty(
         result = runner.invoke(client, ["purge"])
     assert result.exit_code == 0
     assert "Purged dead workers" in result.output
+
+
+def test_workers_empty(tmp_path: Path) -> None:
+    """``workers`` succeeds when there are no workers."""
+    with _patched_client(tmp_path):
+        result = runner.invoke(client, ["workers"])
+    assert result.exit_code == 0
+
+
+def test_workers_with_workers(tmp_path: Path) -> None:
+    """``workers`` prints every registered worker by name."""
+    with _patched_client(tmp_path) as http_client:
+        for name in ("alpha", "beta"):
+            registration_data = WorkerRegistration(
+                name=name, backend=WorkerBackend.NATIVE
+            )
+            response = http_client.post(
+                "/workers",
+                data={"registration": registration_data.model_dump_json()},
+            )
+            response.raise_for_status()
+        result = runner.invoke(client, ["workers"])
+    assert result.exit_code == 0
+    assert "alpha" in result.output
+    assert "beta" in result.output
+
+
+def test_workers_json(tmp_path: Path) -> None:
+    """``workers --json`` emits a parseable JSON array of workers."""
+    with _patched_client(tmp_path) as http_client:
+        registration_data = WorkerRegistration(
+            name="gamma", backend=WorkerBackend.NATIVE
+        )
+        response = http_client.post(
+            "/workers",
+            data={"registration": registration_data.model_dump_json()},
+        )
+        response.raise_for_status()
+        result = runner.invoke(client, ["workers", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert payload[0]["registration_data"]["name"] == "gamma"

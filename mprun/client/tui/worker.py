@@ -101,12 +101,12 @@ class WorkerView(Screen[None]):
                 self._list_refs.append(-1)
                 for idx in indices:
                     w = self._workers[idx]
-                    name = w.get("name", "?")
+                    name = w.get("registration_data", {}).get("name", "?")
                     await lv.append(ListItem(Label(f"  {name}")))
                     self._list_refs.append(idx)
         else:
             for i, worker in enumerate(self._workers):
-                name = worker.get("name", "?")
+                name = worker.get("registration_data", {}).get("name", "?")
                 state = worker.get("state", "?")
                 await lv.append(ListItem(Label(f"{name}  [dim]{state}[/dim]")))
                 self._list_refs.append(i)
@@ -135,7 +135,9 @@ class WorkerView(Screen[None]):
         panel.update(
             f"[bold]{w.registration_data.name}[/bold]\n\n"
             f"[dim]WID:[/dim]         {w.wid}\n"
+            f"[dim]Backend:[/dim]     {w.registration_data.backend}\n"
             f"[dim]State:[/dim]       [{state_colour}]{w.state}[/{state_colour}]\n"
+            f"[dim]Joined:[/dim]      {_fmt_ts(w.joined)}\n"
             f"[dim]Last check-in:[/dim] {_fmt_ts(w.last_check_in)}\n"
             f"[dim]Current run:[/dim]  {run_str}"
         )

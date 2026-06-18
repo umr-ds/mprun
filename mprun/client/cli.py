@@ -28,7 +28,7 @@ from mprun.client.client import (
 )
 from mprun.client.tui import run_tui
 from mprun.custom_types import RunId
-from mprun.models import Experiment
+from mprun.models import Experiment, WorkerData
 
 console = Console()
 client = Typer(no_args_is_help=False)
@@ -137,6 +137,23 @@ def _print_experiment(experiment: Experiment) -> None:
                 _fmt_duration(run.started_running, run.finished_running),
                 str(run.wid) if run.wid is not None else "—",
             )
+    console.print(table)
+
+
+def _print_workers(workers: list[WorkerData]) -> None:
+    """Print a summary table of all registered workers to the console."""
+    table = Table("Name", "WID", "Backend", "State", "Joined", "Last Check-in", "Run")
+    for w in workers:
+        run_str = f"{w.run.eid}-{w.run.index}-{w.run.iteration}" if w.run else "—"
+        table.add_row(
+            w.registration_data.name,
+            str(w.wid),
+            w.registration_data.backend,
+            w.state,
+            _fmt_ts(w.joined),
+            _fmt_ts(w.last_check_in),
+            run_str,
+        )
     console.print(table)
 
 
@@ -301,6 +318,37 @@ async def purge_workers_cmd(
         raise Exit(1) from err
 
     echo("Purged dead workers")
+
+
+@client.command("workers", help="Get list of all registered workers")
+@_async_command
+async def list_workers(
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+    print_json: bool = Option(
+        False, "-j", "--json", metavar="json", help="Output raw json"
+    ),
+) -> None:
+    """Get list of all registered workers."""
+    try:
+        async with _client_factory(base_url) as http:
+            resp = await http.get("/workers")
+    except HTTPStatusError as err:
+        echo(f"HTTP Error: {err}", err=True)
+        raise Exit(1) from err
+
+    try:
+        workers = [WorkerData.model_validate(j) for j in resp.json()]
+
+        if print_json:
+            echo(resp.text)
+        else:
+            _print_workers(workers)
+        raise Exit(0)
+    except ValidationError as err:
+        echo(f"Error validating response: {err}", err=True)
+        raise Exit(1) from err
 
 
 @client.command("results", help="Download results archive for a specific run.")

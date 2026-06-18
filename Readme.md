@@ -83,6 +83,7 @@ Run without a subcommand to open the interactive TUI. Pass a subcommand for non-
 | `create <file.toml> [-u URL] [-j]`               | Submit experiment from TOML file               |
 | `delete <eid> [-u URL] [-y]`                     | Delete experiment (prompts unless `-y`)        |
 | `purge [-u URL]`                                 | Purge all dead workers (cannot be undone)      |
+| `workers [-u URL] [-j]`                          | List all registered workers                    |
 | `results <eid>-<index>-<iter> [-o DIR] [-u URL]` | Download single run's result archive           |
 | `reset <eid>-<index>-<iter> [-u URL]`            | Reset a run (delete results, set to WAITING)   |
 | `get-results <eid> [-o DIR] [-u URL]`            | Download all result archives for an experiment |
@@ -147,6 +148,8 @@ Non-TOML files and directories are dimmed; only `.toml` files can be submitted.
 | `v`        | Switch to Over-View                                          |
 | `c`        | Switch to Create-Mode                                        |
 | `Ctrl+R`   | Refresh now                                                  |
+
+The detail panel shows each worker's name, WID, backend, state, join time, last check-in, and current run.
 
 ## Experiment creation
 
