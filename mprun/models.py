@@ -23,6 +23,7 @@ from mprun.custom_types import (
     RunId,
     SuccessState,
     TOMLScalar,
+    WorkerBackend,
 )
 from mprun.errors import ArchiveValidationError, InvalidParametersError
 
@@ -780,6 +781,7 @@ class WorkerData(BaseModel):
         state (WorkerState): Current worker state. See ``WorkerState`` for semantics.
         last_check_in (float): Unix timestamp of the worker's most recent check-in.
         run (RunId | None): ID of the run currently assigned to this worker, or ``None`` if idle.
+        backend (WorkerBackend): Worker's execution backend.
     """
 
     wid: int
@@ -787,6 +789,7 @@ class WorkerData(BaseModel):
     state: WorkerState
     last_check_in: float
     run: RunId | None = None
+    backend: WorkerBackend = WorkerBackend.NATIVE
 
     @classmethod
     def new(cls, name: str) -> WorkerData:

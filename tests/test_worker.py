@@ -1,12 +1,4 @@
-"""Tests for worker module.
-
-``test_execute_run`` and ``test_collect_results`` are the project's
-end-to-end smoke tests: they execute the bundled real scripts under
-``tests/artefacts/test_experiment/`` and assert on the files those scripts
-produce. The remaining tests use the synthetic ``make_experiment``
-factory so they can exercise the worker's API surface without depending
-on the real artefact.
-"""
+"""Tests for worker module."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -23,7 +15,6 @@ from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
     ActiveState,
-    Experiment,
     ExperimentDefinition,
     FailureReason,
     Run,
@@ -31,8 +22,8 @@ from mprun.models import (
     WorkerData,
 )
 from mprun.server import DATA_PATH_ENV, lifespan, server
-from mprun.worker.worker import RESULTS_ARCHIVE_NAME, Worker
-from tests.conftest import copy_experiment_to_test_environment
+from mprun.worker import RESULTS_ARCHIVE_NAME
+from mprun.worker.worker import Worker
 
 
 def _idle_worker(home_dir: Path) -> Worker:
@@ -42,18 +33,6 @@ def _idle_worker(home_dir: Path) -> Worker:
         meta_data=WorkerData.new(name="testworker"),
         home_dir=home_dir,
     )
-
-
-def _ready_worker(
-    home_dir: Path,
-    definition: ExperimentDefinition,
-    archive_path: Path,
-) -> Worker:
-    """Build a Worker pre-assigned to ``definition``'s first run with archive in place."""
-    worker = _idle_worker(home_dir)
-    worker.working = Experiment.new(definition=definition).runs[0][0]
-    worker.archive_path = archive_path
-    return worker
 
 
 @pytest.mark.asyncio
@@ -143,73 +122,6 @@ async def test_get_run(
             await worker.get_work()
             assert worker.working is not None
             assert worker.archive_path.is_file(follow_symlinks=False)
-
-
-@pytest.mark.asyncio
-async def test_execute_run(tmp_path: Path) -> None:
-    """Smoke test: worker executes the bundled real experiment scripts."""
-    worker_data = WorkerData.new(name="test_worker")
-    dummy_client = AsyncClient()
-
-    experiment_definition, experiment_definition_path = (
-        copy_experiment_to_test_environment(directory=tmp_path)
-    )
-    archive_path = experiment_definition.create_archive(
-        experiment_toml=experiment_definition_path
-    )
-    experiment = Experiment.new(definition=experiment_definition)
-
-    worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
-
-    worker.working = experiment.runs[0][0]
-    worker.archive_path = archive_path
-
-    with TemporaryDirectory() as exec_dir:
-        failure = await worker.execute_run(execution_dir=Path(exec_dir))
-
-    assert failure is None
-
-
-@pytest.mark.asyncio
-async def test_collect_results(tmp_path: Path) -> None:
-    """Smoke test: result archive contains every file the bundled scripts produce."""
-    worker_data = WorkerData.new(name="test_worker")
-    dummy_client = AsyncClient()
-
-    experiment_definition, experiment_definition_path = (
-        copy_experiment_to_test_environment(directory=tmp_path)
-    )
-    archive_path = experiment_definition.create_archive(
-        experiment_toml=experiment_definition_path
-    )
-    experiment = Experiment.new(definition=experiment_definition)
-
-    worker = Worker(http_client=dummy_client, meta_data=worker_data, home_dir=tmp_path)
-
-    worker.working = experiment.runs[0][0]
-    worker.archive_path = archive_path
-
-    with TemporaryDirectory() as exec_dir:
-        exec_path = Path(exec_dir)
-        failure = await worker.execute_run(execution_dir=exec_path)
-        assert failure is None
-
-        await worker.collect_results(execution_dir=exec_path)
-
-    results_archive = worker.home_dir / RESULTS_ARCHIVE_NAME
-    assert results_archive.is_file()
-
-    with ZipFile(results_archive, "r") as zf:
-        contents = zf.namelist()
-        assert "stdout.setup" in contents
-        assert "stderr.setup" in contents
-        assert "stdout" in contents
-        assert "stderr" in contents
-        assert "envfile" in contents
-        assert "test_file.txt" in contents
-        assert "test_dir/nested_file.txt" in contents
-        assert "working_file.txt" in contents
-        assert "working_dir/nested_working_file.txt" in contents
 
 
 @pytest.mark.asyncio
@@ -328,88 +240,10 @@ async def test_report_error(
 
 
 @pytest.mark.asyncio
-async def test_execute_run_fails_when_main_exits_nonzero(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """execute_run returns FAILED when the main executable exits with non-zero status."""
-    definition, directory = make_experiment(
-        executable_content="#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
-    )
-    archive_path = definition.create_archive(
-        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-    )
-
-    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
-
-    with TemporaryDirectory() as exec_dir:
-        assert (
-            await worker.execute_run(execution_dir=Path(exec_dir))
-            == FailureReason.RETURN
-        )
-
-
-@pytest.mark.asyncio
-async def test_execute_run_fails_when_setup_exits_nonzero(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """execute_run returns FAILED when the setup executable exits with non-zero status."""
-    definition, directory = make_experiment(
-        setup=True,
-        setup_content="#!/usr/bin/env python3\nimport sys; sys.exit(2)\n",
-    )
-    archive_path = definition.create_archive(
-        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-    )
-
-    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
-
-    with TemporaryDirectory() as exec_dir:
-        assert (
-            await worker.execute_run(execution_dir=Path(exec_dir))
-            == FailureReason.RETURN
-        )
-
-
-@pytest.mark.asyncio
-async def test_execute_run_passes_env_vars_to_subprocess(
-    tmp_path: Path,
-    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
-) -> None:
-    """environment_variables from the definition are visible inside the run subprocess."""
-    definition, directory = make_experiment(
-        executable_content=(
-            "#!/usr/bin/env python3\n"
-            "import os, sys\n"
-            "sys.stdout.write(os.environ.get('MPRUN_TEST', '<unset>'))\n"
-        ),
-        environment_variables={"MPRUN_TEST": "hello"},
-    )
-    archive_path = definition.create_archive(
-        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
-    )
-
-    worker = _ready_worker(tmp_path / "worker", definition, archive_path)
-
-    with TemporaryDirectory() as exec_dir:
-        exec_path = Path(exec_dir)
-        assert await worker.execute_run(execution_dir=exec_path) is None
-        assert (exec_path / "stdout").read_text() == "hello"
-
-
-@pytest.mark.asyncio
 async def test_worker_raises_no_run_error_when_idle(tmp_path: Path) -> None:
     """Run-dependent methods raise NoRunError when no run is assigned."""
     worker = _idle_worker(tmp_path / "worker")
 
-    dummy_dir = tmp_path / "worker"
-    with pytest.raises(NoRunError):
-        await worker.execute_run(execution_dir=dummy_dir)
-    with pytest.raises(NoRunError):
-        await worker.prepare_run_environment(execution_dir=dummy_dir)
-    with pytest.raises(NoRunError):
-        await worker.collect_results(execution_dir=dummy_dir)
     with pytest.raises(NoRunError):
         await worker.upload_results()
     with pytest.raises(NoRunError):

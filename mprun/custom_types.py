@@ -104,3 +104,9 @@ class AppPaths(NamedTuple):
 
     user: Path
     site: Path
+
+
+class WorkerBackend(StrEnum):
+    """Possible worker backends."""
+
+    NATIVE = "NATIVE"
