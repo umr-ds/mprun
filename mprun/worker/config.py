@@ -12,16 +12,6 @@ from tomlkit import load
 from mprun import DEFAULT_CONFIG_DIRS, DEFAULT_DATA_DIRS, AppPaths
 
 
-class RegistrationData(BaseModel):
-    """Worker registration data.
-
-    Dumped to JSON file upon successful registration and read upon worker restart.
-    """
-
-    name: str
-    wid: int
-
-
 class WorkerConfig(BaseModel):
     """Worker configuration, loaded from a TOML file."""
 

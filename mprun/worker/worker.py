@@ -23,7 +23,6 @@ from mprun.errors import (
     ArchiveValidationError,
     InconsistentConfigurationError,
     NoRunError,
-    NoSavedMetadataError,
 )
 from mprun.log import configure_logging
 from mprun.models import (
@@ -34,7 +33,6 @@ from mprun.models import (
 from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.backends import Backend, NativeBackend
 from mprun.worker.config import (
-    RegistrationData,
     WorkerConfig,
     load_worker_config,
     resolve_worker_config_path,
@@ -162,42 +160,31 @@ class Worker:
         client = AsyncClient(base_url=server_address)
 
         config.home_directory.mkdir(parents=True, exist_ok=True)
-        registration_path = config.home_directory / REGISTRATION_FILE_NAME
         meta_data_path = config.home_directory / METADATA_FILE_NAME
-
-        registration_data: RegistrationData
+        meta_data: WorkerData
 
         if not await to_thread(
-            registration_path.is_file
+            meta_data_path.is_file
         ):  # no saved registration data available -> register new worker
             meta_data = await Worker.register(client=client, name=name)
             with meta_data_path.open("w") as f:
                 await to_thread(f.write, meta_data.model_dump_json())
-            registration_data = RegistrationData(name=config.name, wid=meta_data.wid)
-            with registration_path.open("w") as f:
-                await to_thread(f.write, registration_data.model_dump_json())
             return cls(
                 http_client=client, meta_data=meta_data, home_dir=config.home_directory
             )
 
-        with registration_path.open("rb") as f:
+        with meta_data_path.open("rb") as f:
             data = await to_thread(f.read)
-            registration_data = RegistrationData.model_validate_json(json_data=data)
+            meta_data = WorkerData.model_validate_json(json_data=data)
 
-        if registration_data.name != config.name:
+        if meta_data.name != config.name:
             raise InconsistentConfigurationError(
-                name="name", expected=registration_data.name, got=config.name
+                name="name", expected=meta_data.name, got=config.name
             )
 
-        wdat = await Worker.revive(client=client, wid=registration_data.wid)
-        if wdat is None:
-            if not await to_thread(meta_data_path.is_file):
-                raise NoSavedMetadataError
-            with meta_data_path.open("rb") as f:
-                data = await to_thread(f.read)
-                meta_data = WorkerData.model_validate_json(json_data=data)
-        else:
-            meta_data = wdat
+        w_dat = await Worker.revive(client=client, wid=meta_data.wid)
+        if w_dat is not None:
+            meta_data = w_dat
             with meta_data_path.open("w") as f:
                 await to_thread(f.write, meta_data.model_dump_json())
 
