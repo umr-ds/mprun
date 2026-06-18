@@ -792,6 +792,7 @@ class WorkerData(BaseModel):
     Attributes:
         wid (int): Unique worker identifier. Integer representation of a UUID4.
         state (WorkerState): Current worker state. See ``WorkerState`` for semantics.
+        joined (float): Timestamp of the worker's registration.
         last_check_in (float): Unix timestamp of the worker's most recent check-in.
         run (RunId | None): ID of the run currently assigned to this worker, or ``None`` if idle.
     """
@@ -799,6 +800,7 @@ class WorkerData(BaseModel):
     registration_data: WorkerRegistration
     wid: int
     state: WorkerState
+    joined: float
     last_check_in: float
     run: RunId | None = None
 
@@ -816,5 +818,6 @@ class WorkerData(BaseModel):
             registration_data=registration_data,
             wid=uuid4().int,
             state=WorkerState.IDLE,
+            joined=time(),
             last_check_in=time(),
         )
