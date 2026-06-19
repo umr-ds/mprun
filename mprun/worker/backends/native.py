@@ -11,7 +11,8 @@ from shutil import copy, copytree, unpack_archive
 from typing import BinaryIO, override
 from zipfile import ZIP_LZMA, ZipFile
 
-from mprun.custom_types import ActiveState, FailureReason
+from mprun.custom_types import ActiveState
+from mprun.errors import ExecutableReturnError, RunFailureError
 from mprun.models import (
     Run,
     add_path_to_archive,
@@ -48,35 +49,41 @@ class NativeBackend(Backend):
         destinations on the local filesystem.
 
         Raises:
-            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
+            RunFailureError: If something goes wrong during environment preparation.
         """
         logger.debug("Preparing for Run.")
-        await to_thread(
-            unpack_archive,
-            filename=self.archive_path,
-            extract_dir=self.execution_dir,
-            format="zip",
-        )
 
-        # Set execute permissions for executables
-        if self.run.definition.setup_executable:
-            setup_script = self.execution_dir / self.run.definition.setup_executable
-            await to_thread(setup_script.chmod, setup_script.stat().st_mode | 0o111)
-        main_script = self.execution_dir / self.run.definition.executable
-        await to_thread(main_script.chmod, main_script.stat().st_mode | 0o111)
+        try:
+            await to_thread(
+                unpack_archive,
+                filename=self.archive_path,
+                extract_dir=self.execution_dir,
+                format="zip",
+            )
 
-        if self.run.definition.environment_files is not None:
-            logger.debug("Copying environment files to destinations")
-            for (
-                env_file,
-                destination,
-            ) in self.run.definition.environment_files.items():
-                source = self.execution_dir / env_file
-                logger.debug("Copying %s to %s", source, destination)
-                if source.is_file():
-                    await to_thread(copy, source, destination)
-                elif source.is_dir():
-                    await to_thread(copytree, source, destination, dirs_exist_ok=True)
+            # Set execute permissions for executables
+            if self.run.definition.setup_executable:
+                setup_script = self.execution_dir / self.run.definition.setup_executable
+                await to_thread(setup_script.chmod, setup_script.stat().st_mode | 0o111)
+            main_script = self.execution_dir / self.run.definition.executable
+            await to_thread(main_script.chmod, main_script.stat().st_mode | 0o111)
+
+            if self.run.definition.environment_files is not None:
+                logger.debug("Copying environment files to destinations")
+                for (
+                    env_file,
+                    destination,
+                ) in self.run.definition.environment_files.items():
+                    source = self.execution_dir / env_file
+                    logger.debug("Copying %s to %s", source, destination)
+                    if source.is_file():
+                        await to_thread(copy, source, destination)
+                    elif source.is_dir():
+                        await to_thread(
+                            copytree, source, destination, dirs_exist_ok=True
+                        )
+        except Exception as err:
+            raise RunFailureError(run=self.run, reason=err) from err
 
     async def execute(
         self,
@@ -84,7 +91,7 @@ class NativeBackend(Backend):
         stdout: BinaryIO,
         stderr: BinaryIO,
         env: dict[str, str],
-    ) -> FailureReason | None:
+    ) -> None:
         """Execute single executable.
 
         Args:
@@ -93,93 +100,98 @@ class NativeBackend(Backend):
             stderr (BinaryIO): Oen file to write executable's stderr to.
             env (dict[str, str]): Environment variables for executable.
 
-        Returns:
-            FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
+        Raises:
+            RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
         """
         logger.debug("Executing: %s", args)
 
-        process = await asyncio.subprocess.create_subprocess_exec(
-            *args,
-            shell=False,
-            stdout=stdout,
-            stderr=stderr,
-            cwd=self.execution_dir,
-            env=env,
-        )
+        try:
+            process = await asyncio.subprocess.create_subprocess_exec(
+                *args,
+                shell=False,
+                stdout=stdout,
+                stderr=stderr,
+                cwd=self.execution_dir,
+                env=env,
+            )
+        except Exception as err:
+            raise RunFailureError(run=self.run, reason=err) from err
+
         if self.run.definition.timeout:
             try:
                 await wait_for(process.wait(), self.run.definition.timeout)
-            except TimeoutError:
+            except TimeoutError as err:
                 process.kill()
                 await process.wait()
-                return FailureReason.TIMEOUT
+                raise RunFailureError(run=self.run, reason=err) from err
         else:
             await process.wait()
-        if process.returncode == 0:
-            return None
-        return FailureReason.RETURN
-
-    @override
-    async def execute_run(self) -> FailureReason | None:
-        """Execute run.
-
-        Runs the setup executable (if configured), then the main executable. Environment files
-        are copied and environment variables applied via ``prepare_run_environment`` before
-        either executable starts. Each executable's stdout and stderr are captured to files in
-        ``execution_dir``. If a timeout is configured, the process is killed on expiry.
-
-        Returns:
-            FailureReason | None: If the execution failed, the reason for the failure, otherwise None.
-
-        Raises:
-            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
-        """
-        self.run.active_state = ActiveState.RUNNING
-
-        logger.info("Executing Run %s", self.run.run_id)
-        await self.prepare_run_environment()
-        env = environ.copy()
-        if self.run.definition.environment_variables is not None:
-            env.update(self.run.definition.environment_variables)
-
-        if self.run.definition.setup_executable is not None:
-            logger.debug("Running setup executable")
-            setup_stdout_path = self.execution_dir / "stdout.setup"
-            setup_stderr_path = self.execution_dir / "stderr.setup"
-            program = self.execution_dir / self.run.definition.setup_executable
-            with (
-                setup_stdout_path.open("wb") as setup_stdout_file,
-                setup_stderr_path.open("wb") as setup_stderr_file,
-            ):
-                failure = await self.execute(
-                    args=[program],
-                    stdout=setup_stdout_file,
-                    stderr=setup_stderr_file,
-                    env=env,
-                )
-                if failure is not None:
-                    return failure
-
-        stdout_path = self.execution_dir / "stdout"
-        stderr_path = self.execution_dir / "stderr"
-        args = [
-            self.execution_dir / self.run.definition.executable,
-            *self.run.assemble_args(),
-        ]
-        logger.debug("Running main executable")
-        with (
-            stdout_path.open("wb") as stdout_file,
-            stderr_path.open("wb") as stderr_file,
-        ):
-            return await self.execute(
-                args=args,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                env=env,
+        return_code = process.returncode
+        if return_code is not None and return_code != 0:
+            raise RunFailureError(
+                run=self.run,
+                reason=ExecutableReturnError(name=str(args[0]), code=return_code),
             )
 
-    @staticmethod
-    async def add_result(zf: ZipFile, name_local: Path, name_archive: str) -> None:
+    @override
+    async def execute_run(self) -> None:
+        """Execute run.
+
+        Runs the setup executable (if configured), then the main executable.
+        Each executable's stdout and stderr are captured to files in ``execution_dir``. If a timeout is configured, the process is killed on expiry.
+
+        Raises:
+            RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
+        """
+        logger.info("Executing Run %s", self.run.run_id)
+
+        try:
+            env = environ.copy()
+            if self.run.definition.environment_variables is not None:
+                env.update(self.run.definition.environment_variables)
+
+            if self.run.definition.setup_executable is not None:
+                logger.debug("Running setup executable")
+                setup_stdout_path = self.execution_dir / "stdout.setup"
+                setup_stderr_path = self.execution_dir / "stderr.setup"
+                program = self.execution_dir / self.run.definition.setup_executable
+                with (
+                    setup_stdout_path.open("wb") as setup_stdout_file,
+                    setup_stderr_path.open("wb") as setup_stderr_file,
+                ):
+                    await self.execute(
+                        args=[program],
+                        stdout=setup_stdout_file,
+                        stderr=setup_stderr_file,
+                        env=env,
+                    )
+
+            stdout_path = self.execution_dir / "stdout"
+            stderr_path = self.execution_dir / "stderr"
+            args = [
+                self.execution_dir / self.run.definition.executable,
+                *self.run.assemble_args(),
+            ]
+            logger.debug("Running main executable")
+            with (
+                stdout_path.open("wb") as stdout_file,
+                stderr_path.open("wb") as stderr_file,
+            ):
+                self.run.active_state = ActiveState.RUNNING
+                return await self.execute(
+                    args=args,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    env=env,
+                )
+        except RunFailureError:
+            raise
+        except Exception as err:
+            raise RunFailureError(run=self.run, reason=err) from err
+
+    async def _add_result(
+        self, zf: ZipFile, name_local: Path, name_archive: str
+    ) -> None:
         """Add a file or directory to an open ZIP archive.
 
         If ``name_local`` is a file, it is added directly. If it is a directory, all files
@@ -190,11 +202,23 @@ class NativeBackend(Backend):
             zf (ZipFile): Open, writable ZIP archive to add the result to.
             name_local (Path): Filesystem path of the file or directory to add.
             name_archive (str): Path to use as the entry name inside the archive.
+
+        Raises:
+            RunFailureError: If adding the result to the archive fails.
         """
         logger.debug("Adding result %s as %s", name_local, name_archive)
-        await to_thread(
-            add_path_to_archive, zf=zf, name_local=name_local, name_archive=name_archive
-        )
+
+        try:
+            await to_thread(
+                add_path_to_archive,
+                zf=zf,
+                name_local=name_local,
+                name_archive=name_archive,
+            )
+        except RunFailureError:
+            raise
+        except Exception as err:
+            raise RunFailureError(run=self.run, reason=err) from err
 
     @override
     async def collect_results(self) -> None:
@@ -204,34 +228,38 @@ class NativeBackend(Backend):
         adds every file or directory listed in the run's ``results`` definition.
 
         Raises:
-            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
+            RunFailureError: If packaging results fails.
         """
         logger.info("Collecting Run results")
 
-        archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
-        with ZipFile(
-            archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
-        ) as zf:
-            setup_stdout_path = self.execution_dir / "stdout.setup"
-            if await to_thread(setup_stdout_path.is_file):
-                await to_thread(zf.write, setup_stdout_path, "stdout.setup")
-            setup_stderr_path = self.execution_dir / "stderr.setup"
-            if await to_thread(setup_stderr_path.is_file):
-                await to_thread(zf.write, setup_stderr_path, "stderr.setup")
-            stdout_path = self.execution_dir / "stdout"
-            if await to_thread(stdout_path.is_file):
-                await to_thread(zf.write, stdout_path, "stdout")
-            stderr_path = self.execution_dir / "stderr"
-            if await to_thread(stderr_path.is_file):
-                await to_thread(zf.write, stderr_path, "stderr")
+        try:
+            archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
+            with ZipFile(
+                archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
+            ) as zf:
+                setup_stdout_path = self.execution_dir / "stdout.setup"
+                if await to_thread(setup_stdout_path.is_file):
+                    await to_thread(zf.write, setup_stdout_path, "stdout.setup")
+                setup_stderr_path = self.execution_dir / "stderr.setup"
+                if await to_thread(setup_stderr_path.is_file):
+                    await to_thread(zf.write, setup_stderr_path, "stderr.setup")
+                stdout_path = self.execution_dir / "stdout"
+                if await to_thread(stdout_path.is_file):
+                    await to_thread(zf.write, stdout_path, "stdout")
+                stderr_path = self.execution_dir / "stderr"
+                if await to_thread(stderr_path.is_file):
+                    await to_thread(zf.write, stderr_path, "stderr")
 
-            for result_local, result_archive in self.run.definition.results.items():
-                # Use absolute path for name_local
-                name_local = Path(result_local)
-                if not name_local.is_absolute():
-                    name_local = self.execution_dir / name_local
-                await NativeBackend.add_result(
-                    zf=zf,
-                    name_local=name_local,
-                    name_archive=result_archive,
-                )
+                for result_local, result_archive in self.run.definition.results.items():
+                    name_local = Path(result_local)
+                    if not name_local.is_absolute():
+                        name_local = self.execution_dir / name_local
+                    await self._add_result(
+                        zf=zf,
+                        name_local=name_local,
+                        name_archive=result_archive,
+                    )
+        except RunFailureError:
+            raise
+        except Exception as err:
+            raise RunFailureError(run=self.run, reason=err) from err

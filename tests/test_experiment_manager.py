@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mprun.custom_types import ActiveState, FailureReason, RunId, SuccessState
+from mprun.custom_types import ActiveState, RunId, SuccessState
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.experiment_manager import ExperimentManager, PendingDispatch
 from mprun.models import (
@@ -146,7 +146,7 @@ async def test_record_run_failure(
 
     run.active_state = ActiveState.FINISHED
     run.success_state = SuccessState.FAILED
-    run.failure_reason = FailureReason.BAD_ARCHIVE
+    run.failure_reason = "BAD_ARCHIVE"
     run.finished_running = time.time()
     await manager.record_run_failure(run=run)
 
@@ -157,7 +157,7 @@ async def test_record_run_failure(
     submitted_run = retrieved.runs[run.index][run.iteration]
     assert submitted_run.active_state == ActiveState.FINISHED
     assert submitted_run.success_state == SuccessState.FAILED
-    assert submitted_run.failure_reason == FailureReason.BAD_ARCHIVE
+    assert submitted_run.failure_reason == "BAD_ARCHIVE"
     assert retrieved.success_state == SuccessState.FAILED
 
 

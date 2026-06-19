@@ -16,13 +16,14 @@ from time import time
 from zipfile import BadZipFile
 
 from httpx import AsyncClient, HTTPStatusError
+from pydantic import ValidationError
 from typer import Exit, Option, Typer
 
-from mprun.custom_types import ActiveState, FailureReason, SuccessState, WorkerBackend
+from mprun.custom_types import ActiveState, SuccessState, WorkerBackend
 from mprun.errors import (
     ArchiveValidationError,
     InconsistentConfigurationError,
-    NoRunError,
+    RunFailureError,
 )
 from mprun.log import configure_logging
 from mprun.models import (
@@ -53,7 +54,6 @@ class Worker:
     Attributes:
         http_client (AsyncClient): HTTP client configured with the server's base URL.
         meta_data (WorkerData): Worker metadata returned by the server on registration.
-        working (Run | None): The run currently being executed, or ``None`` if idle.
         home_dir (Path): Root directory for worker-local data (archives, results).
         archive_path (Path): Destination path for the current experiment's ZIP archive.
         _runner_task (Task): Background asyncio task running ``executor_loop``.
@@ -61,7 +61,6 @@ class Worker:
 
     http_client: AsyncClient
     meta_data: WorkerData
-    working: Run | None
     home_dir: Path
     archive_path: Path
 
@@ -79,7 +78,6 @@ class Worker:
         """
         self.http_client = http_client
         self.meta_data = meta_data
-        self.working = None
         self.home_dir = home_dir
         self.home_dir.mkdir(parents=True, exist_ok=True)
         self.archive_path = self.home_dir / EXPERIMENT_ARCHIVE_NAME
@@ -200,64 +198,112 @@ class Worker:
     async def executor_loop(self) -> None:
         """Poll the server for work and execute runs.
 
-        Wakes every ``SLEEP_TIME`` seconds. When idle, queries the server for a waiting run.
+        Wakes every ``SLEEP_TIME`` seconds, queries the server for a waiting run.
         If one is available, executes it, collects results, uploads them, and cleans up before
-        sleeping again. HTTP errors during dispatch are logged and skipped.
+        sleeping again.
+        If errors occur with Run execution, these are communicated to the server.
         """
         logger.info("Starting worker executor loop")
         while True:
             try:
-                await self.get_work()
-                if self.working is None:
+                run = await self._fetch_work()
+                if run is None:
                     logger.info("No work to get. Sleeping")
                     await sleep(SLEEP_TIME)
                     continue
+                await self._process_run(run)
+            except Exception:
+                logger.exception("Unhandled error in executor loop, sleeping")
+                await sleep(SLEEP_TIME)
 
-                with TemporaryDirectory(delete=True) as tmp_dir:
-                    execution_dir = Path(tmp_dir)
-                    backend: Backend
-                    match self.meta_data.registration_data.backend:
-                        case WorkerBackend.NATIVE:
-                            backend = NativeBackend(
-                                run=self.working,
-                                archive_path=self.archive_path,
-                                home_dir=self.home_dir,
-                                execution_dir=execution_dir,
-                            )
+    async def _fetch_work(self) -> Run | None:
+        """Fetch a waiting run from the server, or ``None`` if none available.
 
-                    failure = await backend.execute_run()
-                    logger.info("Finished execution with failure state %s", failure)
+        Returns:
+            The dispatched run, or ``None`` if nothing is waiting or a recoverable
+            error occurred.
+        """
+        try:
+            return await self.get_work()
+        except HTTPStatusError:
+            logger.exception("Error performing operation with server")
+        except RunFailureError as err:
+            logger.exception("Error validating/saving Run")
+            try:
+                await self.report_error(failure=err)
+            except Exception:
+                logger.exception("Failed reporting error to server")
+        except Exception:
+            logger.exception("Unexpected error getting work")
+        return None
 
-                    if failure is None:
-                        self.working.success_state = SuccessState.SUCCESS
-                        self.working.failure_reason = None
-                    else:
-                        self.working.success_state = SuccessState.FAILED
-                        self.working.failure_reason = failure
-                    self.working.active_state = ActiveState.FINISHED
-                    self.working.finished_running = time()
+    async def _process_run(self, run: Run) -> None:
+        """Execute, collect, and upload a single run.
 
-                    logger.info("Updating Run state")
-                    await backend.collect_results()
-                    await self.upload_results()
-            except (ArchiveValidationError, BadZipFile):
-                logger.exception("Archive validation failed")
-                await self.report_error()
-            except HTTPStatusError:
-                logger.exception("Error performing operation with server")
-            except OSError:
-                logger.exception("Encountered OSError")
-            except (
-                Exception
-            ) as err:  # Worker process should survive unexpected exceptions
-                logger.critical(
-                    "Encountered unexpected exception: %s", err, exc_info=True
-                )
-            finally:
-                if self.working is not None:
-                    self.working = None
+        Args:
+            run: The run to process.
+        """
+        with TemporaryDirectory(delete=True) as tmp_dir:
+            execution_dir = Path(tmp_dir)
+            backend: Backend
+            match self.meta_data.registration_data.backend:
+                case WorkerBackend.NATIVE:
+                    backend = NativeBackend(
+                        run=run,
+                        archive_path=self.archive_path,
+                        home_dir=self.home_dir,
+                        execution_dir=execution_dir,
+                    )
 
-    async def get_work(self) -> None:
+            try:
+                await backend.prepare_run_environment()
+            except RunFailureError as err:
+                try:
+                    await self.report_error(failure=err)
+                except Exception:
+                    logger.exception("Failed reporting error to server")
+                return
+
+            try:
+                await backend.execute_run()
+                logger.info("Finished execution")
+                run.success_state = SuccessState.SUCCESS
+                run.failure_reason = None
+            except RunFailureError as err:
+                logger.exception("Run failed execution")
+                run.success_state = SuccessState.FAILED
+                run.failure_reason = str(err)
+
+            run.active_state = ActiveState.FINISHED
+            run.finished_running = time()
+
+            logger.info("Updating Run state")
+            try:
+                await backend.collect_results()
+            except RunFailureError as err:
+                logger.exception("Failed collecting results")
+                run.success_state = SuccessState.FAILED
+                run.failure_reason = f"{run.failure_reason or ''}; collect: {err}"
+                try:
+                    await self.report_error(
+                        failure=RunFailureError(run=run, reason=err)
+                    )
+                except Exception:
+                    logger.exception("Failed reporting error to server")
+                return
+            except Exception:
+                logger.exception("Unexpected error collecting results")
+                run.success_state = SuccessState.FAILED
+                return
+
+            try:
+                await self.upload_results(run=run)
+            except (HTTPStatusError, OSError):
+                logger.exception("Failed uploading results")
+            except Exception:
+                logger.exception("Unexpected error uploading results")
+
+    async def get_work(self) -> Run | None:
         """Query the server for a waiting run.
 
         Streams the experiment archive from the server into a temporary directory, validates it
@@ -266,12 +312,7 @@ class Worker:
 
         Raises:
             HTTPStatusError: If the server returns a non-2xx response.
-            ArchiveValidationError: If the received archive does not match the run's definition.
-                The run is stored on ``self.working`` with failure state set before raising,
-                so that the caller can report the error to the server.
-            zipfile.BadZipFile: If the received archive is not a valid ZIP file.
-                Same ``self.working`` semantics as ``ArchiveValidationError``.
-            OSError: If writing the archive to disk fails.
+            RunFailure: If we are unable to verify & store the Run.
         """
         logger.debug("Have no work to do, asking the server...")
         async with self.http_client.stream(
@@ -281,80 +322,92 @@ class Worker:
 
             if response.status_code == HTTPStatus.NO_CONTENT:
                 logger.debug("Server has no work for us.")
-                return
+                return None
 
-            run = Run.model_validate_json(response.headers["X-Run"], strict=True)
+            try:
+                run = Run.model_validate_json(response.headers["X-Run"], strict=True)
+            except ValidationError:
+                logger.exception("Run model validation failed")
+                return None  # We can't really tell the server which run failed validation if we can't get its ID...
+
             logger.debug("Received run: %s", run.run_id)
 
             with TemporaryDirectory(delete=True) as archive_dir:
                 logger.debug("Saving Experiment archive")
                 archive_path = Path(archive_dir) / EXPERIMENT_ARCHIVE_NAME
-                with archive_path.open("wb") as f:
-                    async for chunk in response.aiter_bytes():
-                        await to_thread(f.write, chunk)
+                try:
+                    with archive_path.open("wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            await to_thread(f.write, chunk)
+                except OSError as err:
+                    logger.exception("Failed storing archive on disk")
+                    raise RunFailureError(run=run, reason=err) from err
 
                 logger.debug("Validating Experiment archive")
                 try:
                     await to_thread(
                         run.definition.validate_archive, archive_path=archive_path
                     )
-                except (ArchiveValidationError, BadZipFile):
+                except (ArchiveValidationError, BadZipFile) as err:
                     logger.exception("Archive validation failed")
-                    run.active_state = ActiveState.FINISHED
-                    run.success_state = SuccessState.FAILED
-                    run.failure_reason = FailureReason.BAD_ARCHIVE
-                    run.finished_running = time()
-                    self.working = run
-                    raise
+                    raise RunFailureError(run=run, reason=err) from err
 
                 logger.debug("Archive validated successfully, saving it for execution")
-                await to_thread(copy, archive_path, self.archive_path)
 
-        self.working = run
+                try:
+                    await to_thread(copy, archive_path, self.archive_path)
+                except OSError as err:
+                    logger.exception("Failed copying archive")
+                    raise RunFailureError(run=run, reason=err) from err
 
-    async def report_error(self) -> None:
+        return run
+
+    async def report_error(self, failure: RunFailureError) -> None:
         """Report a run error to the server without a results archive.
 
         Used when a run fails before any results could be collected (e.g. archive
         validation failure).
 
+        Args:
+            failure (RunFailureError): Exception generated by failure.
+
         Raises:
-            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
             HTTPStatusError: If the server returns a non-2xx response.
         """
-        if self.working is None:
-            raise NoRunError
+        failure.run.active_state = ActiveState.FINISHED
+        failure.run.success_state = SuccessState.FAILED
+        failure.run.failure_reason = str(failure.reason)
+        failure.run.finished_running = time()
 
         logger.info(
             "Reporting error for run %s: %s",
-            self.working.run_id,
-            self.working.failure_reason,
+            failure.run.run_id,
+            failure.run.failure_reason,
         )
         response = await self.http_client.post(
             "/runs/error",
             params={"wid": self.meta_data.wid},
-            data={"run": self.working.model_dump_json()},
+            data={"run": failure.run.model_dump_json()},
         )
         response.raise_for_status()
         logger.debug("Error reported successfully")
 
-    async def upload_results(self) -> None:
+    async def upload_results(self, run: Run) -> None:
         """Upload the results archive for the current run to the server.
 
+        Args:
+            run (Run): Finished Run.
+
         Raises:
-            NoRunError: If called when no run is assigned (``self.working`` is ``None``).
             HTTPStatusError: If the server returns a non-2xx response.
         """
-        if self.working is None:
-            raise NoRunError
-
         archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
-        logger.info("Uploading results for run %s", self.working.run_id)
+        logger.info("Uploading results for run %s", run.run_id)
         with archive_path.open("rb") as f:
             response = await self.http_client.post(
                 "/runs/result",
                 params={"wid": self.meta_data.wid},
-                data={"run": self.working.model_dump_json()},
+                data={"run": run.model_dump_json()},
                 files={"results_archive": (RESULTS_ARCHIVE_NAME, f, "application/zip")},
             )
         response.raise_for_status()
@@ -373,7 +426,7 @@ class Worker:
         while True:
             try:
                 await self.check_in()
-            except HTTPStatusError:
+            except Exception:
                 logger.exception("Error performing checkin with server")
             await sleep(SLEEP_TIME)
 
@@ -382,6 +435,7 @@ class Worker:
 
         Raises:
             HTTPStatusError: If the server returns a non-2xx response.
+            httpx.RequestError: If a network or transport error occurs.
         """
         logger.debug("Performing worker check in")
         response = await self.http_client.post(
@@ -394,8 +448,8 @@ class Worker:
 async def _run(config: WorkerConfig) -> None:
     try:
         worker = await Worker.init(config=config)
-    except HTTPStatusError as err:
-        logger.critical("Worker registration failed: %s", err, exc_info=True)
+    except Exception as err:
+        logger.critical("Worker initialisation failed: %s", err, exc_info=True)
         raise Exit(1) from err
     await worker.run()
 

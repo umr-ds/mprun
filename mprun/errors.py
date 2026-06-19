@@ -1,9 +1,12 @@
 """Custom exception types."""
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from mprun.custom_types import RunId
+
+if TYPE_CHECKING:
+    from mprun.models import Run
 
 
 @dataclass(frozen=True)
@@ -36,19 +39,6 @@ class InvalidParametersError(ValueError):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Experiment parameters invalid! Reason: {self.reason}"
-
-
-class NoRunError(AttributeError):
-    """Raised when a worker method requires an active run but none is assigned.
-
-    Indicates a programming error — callers must check ``working`` before invoking
-    methods that require an active run.
-    """
-
-    @override
-    def __str__(self) -> str:
-        """Error's string representation."""
-        return "There is no run!"
 
 
 @dataclass(frozen=True)
@@ -155,3 +145,39 @@ class InconsistentConfigurationError(ValueError):
 
 class NoSavedMetadataError(Exception):
     """Raised if there is no saved metadata, when there should be."""
+
+
+@dataclass(frozen=True)
+class RunFailureError(Exception):
+    """Raised when a run fails.
+
+    Attributes:
+        run (Run): The run that failed.
+        reason (str): Reason for the failure
+    """
+
+    run: Run
+    reason: Exception
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Run {self.run.name} failed for reason: {self.reason!s}"
+
+
+@dataclass(frozen=True)
+class ExecutableReturnError(Exception):
+    """Raised if an executable exits with a status != 0.
+
+    Attributes:
+        name (str): Executable's name.
+        code (int): Status code returned by executable.
+    """
+
+    name: str
+    code: int
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Executable {self.name} returned with {self.code}"

@@ -8,7 +8,7 @@ from zipfile import ZIP_LZMA, ZipFile
 
 import pytest
 
-from mprun.custom_types import ActiveState, FailureReason, SuccessState
+from mprun.custom_types import ActiveState, SuccessState
 from mprun.errors import ArchiveValidationError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -193,7 +193,7 @@ def test_run_reset() -> None:
         wid=5,
         active_state=ActiveState.FINISHED,
         success_state=SuccessState.FAILED,
-        failure_reason=FailureReason.RETURN,
+        failure_reason="something",
         started_running=123.0,
         finished_running=456.0,
         params={"x": 1},

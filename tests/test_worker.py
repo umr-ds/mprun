@@ -11,13 +11,12 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun.custom_types import WorkerBackend
-from mprun.errors import NoRunError
+from mprun.errors import RunFailureError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
     ActiveState,
     ExperimentDefinition,
-    FailureReason,
     Run,
     SuccessState,
     WorkerData,
@@ -26,19 +25,6 @@ from mprun.models import (
 from mprun.server import DATA_PATH_ENV, lifespan, server
 from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.worker import Worker
-
-
-def _idle_worker(home_dir: Path) -> Worker:
-    """Build a Worker with no assigned run."""
-    return Worker(
-        http_client=AsyncClient(),
-        meta_data=WorkerData.new(
-            registration_data=WorkerRegistration(
-                name="testworker", backend=WorkerBackend.NATIVE
-            )
-        ),
-        home_dir=home_dir,
-    )
 
 
 @pytest.mark.asyncio
@@ -118,9 +104,8 @@ async def test_get_run(
             )
             worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
-            assert worker.working is None
-            await worker.get_work()
-            assert worker.working is None  # no experiment present yet
+            run = await worker.get_work()
+            assert run is None  # no experiment present yet
 
             definition, experiment_dir = make_experiment()
             archive_path = definition.create_archive(
@@ -140,8 +125,8 @@ async def test_get_run(
                 )
                 response.raise_for_status()
 
-            await worker.get_work()
-            assert worker.working is not None
+            run = await worker.get_work()
+            assert run is not None
             assert worker.archive_path.is_file(follow_symlinks=False)
 
 
@@ -187,22 +172,20 @@ async def test_results_upload(
                 )
                 response.raise_for_status()
 
-            await worker.get_work()
-            assert worker.working is not None
+            run = await worker.get_work()
+            assert run is not None
 
-            worker.working.active_state = ActiveState.FINISHED
-            worker.working.success_state = SuccessState.SUCCESS
+            run.active_state = ActiveState.FINISHED
+            run.success_state = SuccessState.SUCCESS
 
             home_dir.mkdir(parents=True, exist_ok=True)
             results_path = home_dir / RESULTS_ARCHIVE_NAME
             with ZipFile(results_path, mode="w") as zf:
                 zf.writestr("result.txt", "ok")
 
-            await worker.upload_results()
+            await worker.upload_results(run=run)
 
-            response = await client.get(
-                f"/runs/{worker.working.eid}/{worker.working.index}/{worker.working.iteration}"
-            )
+            response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
             response.raise_for_status()
             submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED
@@ -251,31 +234,41 @@ async def test_report_error(
                 )
                 response.raise_for_status()
 
-            await worker.get_work()
-            assert worker.working is not None
+            run = await worker.get_work()
+            assert run is not None
 
-            worker.working.active_state = ActiveState.FINISHED
-            worker.working.success_state = SuccessState.FAILED
-            worker.working.failure_reason = FailureReason.BAD_ARCHIVE
+            failure = RunFailureError(run=run, reason=Exception("BAD_ARCHIVE"))
 
-            await worker.report_error()
+            await worker.report_error(failure=failure)
 
-            response = await client.get(
-                f"/runs/{worker.working.eid}/{worker.working.index}/{worker.working.iteration}"
-            )
+            response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
             response.raise_for_status()
             submitted_run = Run.model_validate(response.json())
             assert submitted_run.active_state == ActiveState.FINISHED
             assert submitted_run.success_state == SuccessState.FAILED
-            assert submitted_run.failure_reason == FailureReason.BAD_ARCHIVE
+            assert submitted_run.failure_reason == "BAD_ARCHIVE"
 
 
 @pytest.mark.asyncio
-async def test_worker_raises_no_run_error_when_idle(tmp_path: Path) -> None:
-    """Run-dependent methods raise NoRunError when no run is assigned."""
-    worker = _idle_worker(tmp_path / "worker")
+async def test_get_work_returns_none_when_idle(tmp_path: Path) -> None:
+    """get_work returns None when the server has no work."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
 
-    with pytest.raises(NoRunError):
-        await worker.upload_results()
-    with pytest.raises(NoRunError):
-        await worker.report_error()
+        async with (
+            lifespan(server),
+            AsyncClient(
+                transport=ASGITransport(app=server), base_url="http://test"
+            ) as client,
+        ):
+            home_dir = tmp_path / "worker"
+            metadata = await Worker.register(
+                client=client,
+                registration_data=WorkerRegistration(
+                    name="test_worker", backend=WorkerBackend.NATIVE
+                ),
+            )
+            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+
+            run = await worker.get_work()
+            assert run is None

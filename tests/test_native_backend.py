@@ -7,7 +7,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from mprun.custom_types import FailureReason
+from mprun.errors import RunFailureError
 from mprun.models import (
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
@@ -54,9 +54,10 @@ async def test_execute_run(tmp_path: Path) -> None:
             archive_path=archive_path,
             execution_dir=Path(exec_dir),
         )
-        failure = await backend.execute_run()
+        await backend.prepare_run_environment()
+        await backend.execute_run()
 
-    assert failure is None
+    # no exception means success
 
 
 @pytest.mark.asyncio
@@ -80,8 +81,8 @@ async def test_collect_results(tmp_path: Path) -> None:
             archive_path=archive_path,
             execution_dir=exec_path,
         )
-        failure = await backend.execute_run()
-        assert failure is None
+        await backend.prepare_run_environment()
+        await backend.execute_run()
 
         await backend.collect_results()
 
@@ -106,7 +107,7 @@ async def test_execute_run_fails_when_main_exits_nonzero(
     tmp_path: Path,
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
-    """execute_run returns FAILED when the main executable exits with non-zero status."""
+    """execute_run raises RunFailureError when the main executable exits with non-zero status."""
     definition, directory = make_experiment(
         executable_content="#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
     )
@@ -124,7 +125,9 @@ async def test_execute_run_fails_when_main_exits_nonzero(
             archive_path=archive_path,
             execution_dir=Path(exec_dir),
         )
-        assert await backend.execute_run() == FailureReason.RETURN
+        await backend.prepare_run_environment()
+        with pytest.raises(RunFailureError):
+            await backend.execute_run()
 
 
 @pytest.mark.asyncio
@@ -132,7 +135,7 @@ async def test_execute_run_fails_when_setup_exits_nonzero(
     tmp_path: Path,
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
-    """execute_run returns FAILED when the setup executable exits with non-zero status."""
+    """execute_run raises RunFailureError when the setup executable exits with non-zero status."""
     definition, directory = make_experiment(
         setup=True,
         setup_content="#!/usr/bin/env python3\nimport sys; sys.exit(2)\n",
@@ -151,7 +154,9 @@ async def test_execute_run_fails_when_setup_exits_nonzero(
             archive_path=archive_path,
             execution_dir=Path(exec_dir),
         )
-        assert await backend.execute_run() == FailureReason.RETURN
+        await backend.prepare_run_environment()
+        with pytest.raises(RunFailureError):
+            await backend.execute_run()
 
 
 @pytest.mark.asyncio
@@ -183,5 +188,6 @@ async def test_execute_run_passes_env_vars_to_subprocess(
             archive_path=archive_path,
             execution_dir=exec_path,
         )
-        assert await backend.execute_run() is None
+        await backend.prepare_run_environment()
+        await backend.execute_run()
         assert (exec_path / "stdout").read_text() == "hello"

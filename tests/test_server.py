@@ -15,7 +15,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from mprun import SERVER_ADDRESS_ENV
-from mprun.custom_types import ActiveState, FailureReason, SuccessState, WorkerBackend
+from mprun.custom_types import ActiveState, SuccessState, WorkerBackend
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -745,7 +745,7 @@ class TestRuns:
 
                 run.active_state = ActiveState.FINISHED
                 run.success_state = SuccessState.FAILED
-                run.failure_reason = FailureReason.BAD_ARCHIVE
+                run.failure_reason = "BAD_ARCHIVE"
 
                 response = client.post(
                     "/runs/error",
@@ -759,7 +759,7 @@ class TestRuns:
                 submitted_run = Run.model_validate(response.json())
                 assert submitted_run.active_state == ActiveState.FINISHED
                 assert submitted_run.success_state == SuccessState.FAILED
-                assert submitted_run.failure_reason == FailureReason.BAD_ARCHIVE
+                assert submitted_run.failure_reason == "BAD_ARCHIVE"
 
     def test_run_error_unknown_worker(
         self,
@@ -783,7 +783,7 @@ class TestRuns:
                 run = Run.model_validate_json(response.headers["X-Run"], strict=True)
                 run.active_state = ActiveState.FINISHED
                 run.success_state = SuccessState.FAILED
-                run.failure_reason = FailureReason.BAD_ARCHIVE
+                run.failure_reason = "BAD_ARCHIVE"
 
                 response = client.post(
                     "/runs/error",
