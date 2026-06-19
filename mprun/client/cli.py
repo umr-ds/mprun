@@ -158,10 +158,15 @@ def _print_workers(workers: list[WorkerData]) -> None:
 
 
 @client.callback(invoke_without_command=True)
-def _tui_entry(ctx: Context) -> None:
+def _tui_entry(
+    ctx: Context,
+    base_url: str | None = Option(
+        None, "-u", "--base-url", help="Base URL of the server."
+    ),
+) -> None:
     """Launch interactive TUI when no subcommand is given."""
     if ctx.invoked_subcommand is None:
-        run_tui()
+        run_tui(base_url)
         raise Exit(0)
 
 
