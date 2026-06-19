@@ -129,6 +129,7 @@ class WorkerManager:
 
             await to_thread(self._workers_table.insert, worker.model_dump())
             self._workers[worker.wid] = worker
+            logger.info("Registered new worker: %s (%d)", worker.name, worker.wid)
             return worker
 
     async def get(self, wid: int) -> WorkerData:
@@ -166,6 +167,7 @@ class WorkerManager:
 
             worker = self._workers[wid]
             worker.last_check_in = time()
+            logger.debug("Worker %s (%d) checked in", worker.name, worker.wid)
             await self._update(worker_data=worker)
 
     async def assign_run(self, wid: int, run_id: RunId) -> None:
@@ -185,6 +187,9 @@ class WorkerManager:
             worker = self._workers[wid]
             worker.state = WorkerState.WORKING
             worker.run = run_id
+            logger.debug(
+                "Assigned run %s to worker %s (%d)", run_id, worker.name, worker.wid
+            )
             await self._update(worker_data=worker)
 
     async def unassign_run(self, wid: int, run_id: RunId, state: WorkerState) -> None:
@@ -239,11 +244,13 @@ class WorkerManager:
             worker.last_check_in = time()
             await self._update(worker_data=worker)
             self._workers[worker.wid] = worker
+            logger.info("Revived worker %s (%d)", worker.name, worker.wid)
             return worker
 
     async def purge(self) -> None:
         """Delete all dead workers permanently."""
         async with self._state_mutex:
+            logger.info("Purging dead workers")
             q = Query()
             await to_thread(self._workers_table.remove, q.state == WorkerState.DEAD)
 
@@ -258,6 +265,7 @@ class WorkerManager:
 
     async def _collect_garbage(self) -> None:
         """Scan workers and evict any whose last check-in exceeds the timeout."""
+        logger.debug("Running worker garbage collector")
         dead_wids: list[int]
         async with self._state_mutex:
             now = time()

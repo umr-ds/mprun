@@ -803,6 +803,11 @@ class WorkerData(BaseModel):
     last_check_in: float
     run: RunId | None = None
 
+    @property
+    def name(self) -> str:
+        """Re-expose name from registration data (for convenience)."""
+        return self.registration_data.name
+
     @classmethod
     def new(cls, registration_data: WorkerRegistration) -> WorkerData:
         """Create a new worker with a fresh UUID and IDLE state.
