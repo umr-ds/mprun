@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from os import environ
 from pathlib import Path
 from shutil import copy, copytree, unpack_archive
-from typing import BinaryIO, override
+from typing import BinaryIO
 from zipfile import ZIP_LZMA, ZipFile
 
 from mprun.custom_types import ActiveState
@@ -18,13 +18,12 @@ from mprun.models import (
     add_path_to_archive,
 )
 from mprun.worker import RESULTS_ARCHIVE_NAME
-from mprun.worker.backends import Backend
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class NativeBackend(Backend):
+class NativeBackend:
     """Runs experiments directly on the worker's host system without any sandboxing.
 
     Attributes:
@@ -39,7 +38,6 @@ class NativeBackend(Backend):
     home_dir: Path
     execution_dir: Path
 
-    @override
     async def prepare_run_environment(self) -> None:
         """Unpack the experiment archive and build the process environment.
 
@@ -137,7 +135,6 @@ class NativeBackend(Backend):
                 reason=ExecutableReturnError(name=str(args[0]), code=return_code),
             )
 
-    @override
     async def execute_run(self) -> None:
         """Execute run.
 
@@ -226,7 +223,6 @@ class NativeBackend(Backend):
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
 
-    @override
     async def collect_results(self) -> None:
         """Package run outputs and result files into a ZIP archive at ``home_dir/results.zip``.
 
