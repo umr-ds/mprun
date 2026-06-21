@@ -51,7 +51,7 @@ class NativeBackend(Backend):
         Raises:
             RunFailureError: If something goes wrong during environment preparation.
         """
-        logger.debug("Preparing for Run.")
+        logger.info("Preparing for Run %s", self.run.run_id)
 
         try:
             await to_thread(
@@ -84,6 +84,8 @@ class NativeBackend(Backend):
                         )
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
+
+        logger.info("Finished preparing for Run %s", self.run.run_id)
 
     async def execute(
         self,
@@ -121,12 +123,14 @@ class NativeBackend(Backend):
             try:
                 await wait_for(process.wait(), self.run.definition.timeout)
             except TimeoutError as err:
+                logger.debug("%s did not finish within timeout, aborting.", args)
                 process.kill()
                 await process.wait()
                 raise RunFailureError(run=self.run, reason=err) from err
         else:
             await process.wait()
         return_code = process.returncode
+        logger.debug("%s finished with exit code %d", args, return_code)
         if return_code is not None and return_code != 0:
             raise RunFailureError(
                 run=self.run,
@@ -178,7 +182,7 @@ class NativeBackend(Backend):
                 stderr_path.open("wb") as stderr_file,
             ):
                 self.run.active_state = ActiveState.RUNNING
-                return await self.execute(
+                await self.execute(
                     args=args,
                     stdout=stdout_file,
                     stderr=stderr_file,
@@ -188,6 +192,8 @@ class NativeBackend(Backend):
             raise
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
+
+        logger.info("Finished executing Run %s", self.run.run_id)
 
     async def _add_result(
         self, zf: ZipFile, name_local: Path, name_archive: str
@@ -230,7 +236,7 @@ class NativeBackend(Backend):
         Raises:
             RunFailureError: If packaging results fails.
         """
-        logger.info("Collecting Run results")
+        logger.info("Collecting results for %s", self.run.run_id)
 
         try:
             archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
@@ -263,3 +269,5 @@ class NativeBackend(Backend):
             raise
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
+
+        logger.info("Finished collecting results for %s", self.run.run_id)

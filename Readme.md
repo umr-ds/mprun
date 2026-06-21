@@ -50,12 +50,12 @@ Config file locations (checked in order):
 
 **Config fields:**
 
-| Field              | Required | Description                                                         |
-|:-------------------|---------:|:--------------------------------------------------------------------|
-| `server_address`   |      yes | Address of the server (e.g. `"localhost:8000"`)                     |
-| `name`             |      yes | Human-readable name for this worker                                 |
-| `home_directory`   |      yes | Working directory for run execution                                 |
-| `log_level`        |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"` |
+| Field              | Required | Description                                                                     |
+|:-------------------|---------:|:--------------------------------------------------------------------------------|
+| `server_address`   |      yes | Address of the server (e.g. `"localhost:8000"`)                                 |
+| `name`             |      yes | Human-readable name for this worker                                             |
+| `home_directory`   |       no | Working directory for run execution (defaults to  `$XDG_DATA_HOME/mprun/worker` |
+| `log_level`        |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"`             |
 
 Example:
 

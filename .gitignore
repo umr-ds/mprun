@@ -331,5 +331,7 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python,jetbrains+all,visualstudiocode,macos,linux
 
 database.json
+db.json
 *.tar.gz
 *.zip
+scratch/
