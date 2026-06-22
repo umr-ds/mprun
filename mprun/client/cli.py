@@ -4,6 +4,7 @@
 
 import asyncio
 import functools
+import os
 from collections.abc import Callable
 from lzma import LZMAError
 from pathlib import Path
@@ -15,7 +16,9 @@ from rich.console import Console
 from rich.table import Table
 from typer import Argument, Context, Exit, Option, Typer, confirm, echo
 
+from mprun import SERVER_ADDRESS_ENV
 from mprun.client.client import (
+    DEFAULT_URL,
     _client_factory,
     _fmt_duration,
     _fmt_ts,
@@ -25,6 +28,10 @@ from mprun.client.client import (
     purge_dead_workers,
     reset_run,
     submit_experiment,
+)
+from mprun.client.config import (
+    load_client_config,
+    resolve_client_config_path,
 )
 from mprun.client.tui import run_tui
 from mprun.custom_types import RunId
@@ -158,31 +165,50 @@ def _print_workers(workers: list[WorkerData]) -> None:
 
 
 @client.callback(invoke_without_command=True)
-def _tui_entry(
+def _client_callback(
     ctx: Context,
     base_url: str | None = Option(
         None, "-u", "--base-url", help="Base URL of the server."
     ),
+    config: Path | None = Option(
+        None,
+        "--config",
+        "-c",
+        help=(
+            "Path to TOML config file. "
+            "Defaults to user and site config dirs (see platformdirs)."
+        ),
+    ),
 ) -> None:
     """Launch interactive TUI when no subcommand is given."""
+    cfg_path = resolve_client_config_path(config)
+    if cfg_path is not None:
+        cfg = load_client_config(cfg_path)
+        effective_url = base_url or cfg.server_address
+    else:
+        effective_url = base_url
+
+    effective_url = effective_url or os.environ.get(SERVER_ADDRESS_ENV, DEFAULT_URL)
+
+    ctx.ensure_object(dict)
+    ctx.obj["base_url"] = effective_url
+
     if ctx.invoked_subcommand is None:
-        run_tui(base_url)
+        run_tui(effective_url)
         raise Exit(0)
 
 
 @client.command("list", help="Get list of all experiments")
 @_async_command
 async def list_experiments(
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
+    ctx: Context,
     print_json: bool = Option(
         False, "-j", "--json", metavar="json", help="Output raw json"
     ),
 ) -> None:
     """Get list of all experiments."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             resp = await http.get("/experiments")
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
@@ -204,11 +230,9 @@ async def list_experiments(
 @client.command("get", help="Get specific experiment by its ID")
 @_async_command
 async def get_experiment(
+    ctx: Context,
     eid: int = Argument(
         help="Experiment's ID (use List command to get all experiments and their IDs)"
-    ),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
     ),
     print_json: bool = Option(
         False, "-j", "--json", metavar="json", help="Output raw json"
@@ -216,7 +240,7 @@ async def get_experiment(
 ) -> None:
     """Get specific experiment by its ID."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             resp = await http.get(f"/experiments/{eid}")
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
@@ -241,17 +265,15 @@ async def get_experiment(
 @client.command("create", help="Create a new experiment from an experiment definition.")
 @_async_command
 async def create_experiment(
+    ctx: Context,
     experiment_file: str = Argument(help="Path to experiment definition"),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
     print_json: bool = Option(
         False, "-j", "--json", metavar="json", help="Output raw json"
     ),
 ) -> None:
     """Create a new experiment from an experiment definition."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             experiment, resp_text = await submit_experiment(
                 http_client=http, experiment_path=Path(experiment_file)
             )
@@ -278,10 +300,8 @@ async def create_experiment(
 @client.command("delete", help="Delete an experiment and all its associated data.")
 @_async_command
 async def delete_experiment_cmd(
+    ctx: Context,
     eid: int = Argument(help="ID of the experiment to delete."),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
     yes: bool = Option(False, "-y", "--yes", help="Skip confirmation prompt."),
 ) -> None:
     """Delete an experiment and all its associated data."""
@@ -289,7 +309,7 @@ async def delete_experiment_cmd(
         confirm(f"Delete experiment {eid}? This cannot be undone.", abort=True)
 
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             await delete_experiment(http_client=http, eid=eid)
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
@@ -310,13 +330,11 @@ async def delete_experiment_cmd(
 @client.command("purge", help="Purge all dead workers. This cannot be undone.")
 @_async_command
 async def purge_workers_cmd(
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
+    ctx: Context,
 ) -> None:
     """Purge all dead workers. This cannot be undone."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             await purge_dead_workers(http_client=http)
     except HTTPStatusError as err:
         echo(f"HTTP error {err.response.status_code}: {err}", err=True)
@@ -328,16 +346,14 @@ async def purge_workers_cmd(
 @client.command("workers", help="Get list of all registered workers")
 @_async_command
 async def list_workers(
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
+    ctx: Context,
     print_json: bool = Option(
         False, "-j", "--json", metavar="json", help="Output raw json"
     ),
 ) -> None:
     """Get list of all registered workers."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             resp = await http.get("/workers")
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
@@ -359,6 +375,7 @@ async def list_workers(
 @client.command("results", help="Download results archive for a specific run.")
 @_async_command
 async def get_run_results(
+    ctx: Context,
     run_id: str = Argument(help="Run ID"),
     output: Path | None = Option(
         None,
@@ -368,9 +385,6 @@ async def get_run_results(
         file_okay=False,
         dir_okay=True,
         writable=True,
-    ),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
     ),
 ) -> None:
     """Download results archive for a specific run."""
@@ -384,7 +398,7 @@ async def get_run_results(
         raise Exit(1) from err
 
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             dest = await download_run_results(
                 http_client=http,
                 eid=rid.eid,
@@ -410,10 +424,8 @@ async def get_run_results(
 )
 @_async_command
 async def reset_run_cmd(
+    ctx: Context,
     run_id: str = Argument(help="Run ID (e.g. 12345678-0-0)"),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
 ) -> None:
     """Reset a run: delete its results and return it to WAITING state."""
     try:
@@ -426,7 +438,7 @@ async def reset_run_cmd(
         raise Exit(1) from err
 
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             run = await reset_run(
                 http_client=http,
                 rid=rid,
@@ -444,6 +456,7 @@ async def reset_run_cmd(
 @client.command("get-results", help="Download results for all runs in an experiment.")
 @_async_command
 async def get_experiment_results_cmd(
+    ctx: Context,
     eid: int = Argument(help="Experiment ID"),
     output: Path | None = Option(
         None,
@@ -454,13 +467,10 @@ async def get_experiment_results_cmd(
         dir_okay=True,
         writable=True,
     ),
-    base_url: str | None = Option(
-        None, "-u", "--base-url", help="Base URL of the server."
-    ),
 ) -> None:
     """Download results for all runs in an experiment in parallel."""
     try:
-        async with _client_factory(base_url) as http:
+        async with _client_factory(ctx.obj["base_url"]) as http:
             resp = await http.get(f"/experiments/{eid}")
             resp.raise_for_status()
 

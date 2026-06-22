@@ -1,4 +1,4 @@
-"""Configuration models and resolution helpers."""
+"""Worker configuration."""
 
 from __future__ import annotations
 
@@ -6,12 +6,17 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import tomlkit
 from pydantic import BaseModel, field_validator
-from tomlkit import load
 
 from mprun import DEFAULT_CONFIG_DIRS, DEFAULT_DATA_DIRS, AppPaths
 from mprun.custom_types import WorkerBackend
 from mprun.models import WorkerRegistration
+
+DEFAULT_WORKER_CONFIG_PATHS = AppPaths(
+    user=DEFAULT_CONFIG_DIRS.user / "worker.toml",
+    site=DEFAULT_CONFIG_DIRS.site / "worker.toml",
+)
 
 
 class WorkerConfig(BaseModel):
@@ -59,13 +64,7 @@ class WorkerConfig(BaseModel):
         return WorkerRegistration(name=self.name, backend=self.backend)
 
 
-DEFAULT_WORKER_CONFIG_PATHS = AppPaths(
-    user=DEFAULT_CONFIG_DIRS.user / "worker.toml",
-    site=DEFAULT_CONFIG_DIRS.site / "worker.toml",
-)
-
-
-def resolve_worker_config_path(explicit: Path | None = None) -> Path | None:
+def resolve_worker_config_path(explicit: Path | None) -> Path | None:
     """Find the worker config file on disk.
 
     Args:
@@ -102,4 +101,4 @@ def load_worker_config(path: Path) -> WorkerConfig:
         tomlkit.exceptions.TOMLKitError: If the file is not valid TOML.
     """
     with path.open("rb") as f:
-        return WorkerConfig.model_validate(load(f).unwrap())
+        return WorkerConfig.model_validate(tomlkit.load(f).unwrap())

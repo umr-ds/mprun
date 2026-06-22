@@ -68,27 +68,52 @@ log_level = "INFO"
 
 ### Client
 
+The client reads settings from a TOML config file. All settings can be overridden via CLI arguments.
+
 ```bash
-mprun_client [COMMAND] [OPTIONS]
+mprun_client [-u URL] [-c CONFIG] [COMMAND] [OPTIONS]
 ```
 
 Run without a subcommand to open the interactive TUI. Pass a subcommand for non-interactive use.
 
+Config file locations (checked in order):
+
+- `$XDG_CONFIG_HOME/mprun/client.toml` (`~/.config/mprun/client.toml`)
+- `/etc/xdg/mprun/client.toml` (site-wide, per platformdirs)
+
+**Config fields:**
+
+| Field            | Required | Description                                     |
+|:-----------------|---------:|:------------------------------------------------|
+| `server_address` |       no | Address of the server (e.g. `"localhost:8000"`) |
+
+Example:
+
+```toml
+server_address = "localhost:8000"
+```
+
+**Server address resolution order** (first wins):
+
+1. `-u` / `--base-url` CLI argument
+2. `server_address` in config file
+3. `MPRUN_SERVER_ADDRESS` environment variable
+4. `http://localhost:8000` (default)
+
 #### CLI subcommands
 
-| Command                                          | Description                                    |
-|:-------------------------------------------------|:-----------------------------------------------|
-| `list [-u URL] [-j]`                             | List all experiments                           |
-| `get <eid> [-u URL] [-j]`                        | Show experiment and its runs                   |
-| `create <file.toml> [-u URL] [-j]`               | Submit experiment from TOML file               |
-| `delete <eid> [-u URL] [-y]`                     | Delete experiment (prompts unless `-y`)        |
-| `purge [-u URL]`                                 | Purge all dead workers (cannot be undone)      |
-| `workers [-u URL] [-j]`                          | List all registered workers                    |
-| `results <eid>-<index>-<iter> [-o DIR] [-u URL]` | Download single run's result archive           |
-| `reset <eid>-<index>-<iter> [-u URL]`            | Reset a run (delete results, set to WAITING)   |
-| `get-results <eid> [-o DIR] [-u URL]`            | Download all result archives for an experiment |
+| Command                                  | Description                                    |
+|:-----------------------------------------|:-----------------------------------------------|
+| `list [-j]`                              | List all experiments                           |
+| `get <eid> [-j]`                         | Show experiment and its runs                   |
+| `create <file.toml> [-j]`                | Submit experiment from TOML file               |
+| `delete <eid> [-y]`                      | Delete experiment (prompts unless `-y`)        |
+| `purge`                                  | Purge all dead workers (cannot be undone)      |
+| `workers [-j]`                           | List all registered workers                    |
+| `results <eid>-<index>-<iter> [-o DIR]`  | Download single run's result archive           |
+| `reset <eid>-<index>-<iter>`             | Reset a run (delete results, set to WAITING)   |
+| `get-results <eid> [-o DIR]`             | Download all result archives for an experiment |
 
-`-u` / `--base-url` overrides `MPRUN_SERVER_ADDRESS` (default `http://localhost:8000`).
 `-j` / `--json` prints raw JSON instead of a table.
 
 #### Interactive TUI
