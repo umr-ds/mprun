@@ -1,6 +1,7 @@
 """Custom exception types."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, override
 
 from mprun.custom_types import RunId
@@ -181,3 +182,19 @@ class ExecutableReturnError(Exception):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Executable {self.name} returned with {self.code}"
+
+
+@dataclass(frozen=True)
+class RunTimeoutError(TimeoutError):
+    """Raised when a run's executable exceeds its configured timeout.
+
+    Attributes:
+        seconds (int): Timeout duration (in seconds) that was exceeded.
+    """
+
+    seconds: int
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return f"Timed out after {timedelta(seconds=self.seconds)!s}"

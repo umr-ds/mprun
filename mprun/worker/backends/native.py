@@ -12,7 +12,7 @@ from typing import BinaryIO
 from zipfile import ZIP_LZMA, ZipFile
 
 from mprun.custom_types import ActiveState
-from mprun.errors import ExecutableReturnError, RunFailureError
+from mprun.errors import ExecutableReturnError, RunFailureError, RunTimeoutError
 from mprun.models import (
     Run,
     add_path_to_archive,
@@ -124,7 +124,10 @@ class NativeBackend:
                 logger.debug("%s did not finish within timeout, aborting.", args)
                 process.kill()
                 await process.wait()
-                raise RunFailureError(run=self.run, reason=err) from err
+                raise RunFailureError(
+                    run=self.run,
+                    reason=RunTimeoutError(seconds=self.run.definition.timeout),
+                ) from err
         else:
             await process.wait()
         return_code = process.returncode
