@@ -3,7 +3,6 @@
 """FastAPI server application."""
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -23,9 +22,9 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from typer import Option, Typer
+from typer import Exit, Option, Typer
 
-from mprun import DEFAULT_DATA_DIRS, PACKAGE_NAME, __version__
+from mprun import PACKAGE_NAME, __version__
 from mprun.custom_types import RunId
 from mprun.errors import (
     ArchiveValidationError,
@@ -45,12 +44,14 @@ from mprun.models import (
     WorkerRegistration,
     WorkerState,
 )
+from mprun.server.config import (
+    ServerConfig,
+    load_server_config,
+    resolve_server_config_path,
+)
 from mprun.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
-DATA_PATH_ENV = "MPRUN_DATA_PATH"
-HOST_ENV = "MPRUN_SERVER_HOST"
-PORT_ENV = "MPRUN_SERVER_PORT"
 
 EXPERIMENT_DATA_PATH = "experiments"
 WORKER_DATA_PATH = "workers"
@@ -59,11 +60,8 @@ WORKER_DATA_PATH = "workers"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI voodoo to integrate state."""
-    data_path_str = os.getenv(DATA_PATH_ENV)
-    if data_path_str is None:
-        data_path = DEFAULT_DATA_DIRS.user / "server"
-    else:
-        data_path = Path(data_path_str)
+    config: ServerConfig = app.state.server_config
+    data_path = config.home_directory
 
     logger.info("Starting server in %s", data_path)
     data_path.mkdir(parents=True, exist_ok=True)
@@ -406,38 +404,37 @@ async def purge_dead_workers(
 
 @cli.command()
 def main(
-    host: str = Option(
-        "127.0.0.1",
-        "--host",
-        envvar=HOST_ENV,
-        help=f"Bind host. Falls back to ${HOST_ENV}.",
-    ),
-    port: int = Option(
-        8000,
-        "--port",
-        envvar=PORT_ENV,
-        help=f"Bind port. Falls back to ${PORT_ENV}.",
-    ),
-    verbose: bool = Option(False, "-v", "--verbose", help="Enable debug logging"),
-    data_path: Path | None = Option(
+    config: Path | None = Option(
         None,
-        "--data-path",
-        "-d",
-        envvar=DATA_PATH_ENV,
-        help=f"Directory for database and blob storage. Falls back to ${DATA_PATH_ENV}, then platform default.",
+        "--config",
+        "-c",
+        help="Path to TOML config file. "
+        "Defaults to user and site config dirs (see platformdirs).",
     ),
 ) -> None:
-    """Start the server."""
-    if data_path is not None:
-        os.environ[DATA_PATH_ENV] = str(data_path)
+    """Start the server.
 
-    log_level = logging.DEBUG if verbose else logging.INFO
-    configure_logging(log_level)
+    All settings are read from a TOML config file. Use ``-c`` to provide
+    a path; otherwise the default locations are checked.
+    """
+    cfg_path = resolve_server_config_path(config)
+    if cfg_path is None:
+        logger.critical(
+            "No config file found. "
+            "Use --config or place a server.toml in the default location."
+        )
+        raise Exit(1)
+
+    cfg = load_server_config(cfg_path)
+    configure_logging(cfg.log_level)
+
+    server.state.server_config = cfg
+
     uvicorn.run(
-        "mprun.server:server",
-        host=host,
-        port=port,
-        log_level=logging.getLevelName(log_level).lower(),
+        server,
+        host=cfg.host,
+        port=cfg.port,
+        log_level=logging.getLevelName(cfg.log_level).lower(),
         log_config=None,
     )
 

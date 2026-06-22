@@ -15,6 +15,22 @@ from mprun.models import (
     ExperimentDefinition,
     ValidationMode,
 )
+from mprun.server.config import ServerConfig
+from mprun.server.server import server
+
+
+def configure_server_for_test(home_directory: Path) -> None:
+    """Set a minimal ``ServerConfig`` on the module-level ``server`` singleton.
+
+    Call before creating a ``TestClient`` so that the lifespan picks up the
+    right data directory.
+    """
+    server.state.server_config = ServerConfig(
+        host="127.0.0.1",
+        port=8000,
+        home_directory=home_directory,
+    )
+
 
 TEST_ROOT = Path(__file__).resolve().parent
 TEST_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_experiment"

@@ -26,8 +26,9 @@ from mprun.models import (
     WorkerRegistration,
     WorkerState,
 )
-from mprun.server import DATA_PATH_ENV, server
+from mprun.server.server import server
 from mprun.worker_manager import WORKER_TIMEOUT
+from tests.conftest import configure_server_for_test
 
 
 def _post_experiment(
@@ -75,7 +76,7 @@ class TestWorkers:
             TemporaryDirectory(delete=True) as data_dir,
             pytest.MonkeyPatch.context() as mp,
         ):
-            mp.setenv(DATA_PATH_ENV, data_dir)
+            configure_server_for_test(Path(data_dir))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -97,7 +98,7 @@ class TestWorkers:
             TemporaryDirectory(delete=True) as data_dir,
             pytest.MonkeyPatch.context() as mp,
         ):
-            mp.setenv(DATA_PATH_ENV, data_dir)
+            configure_server_for_test(Path(data_dir))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -124,7 +125,7 @@ class TestWorkers:
             TemporaryDirectory(delete=True) as data_dir,
             pytest.MonkeyPatch.context() as mp,
         ):
-            mp.setenv(DATA_PATH_ENV, data_dir)
+            configure_server_for_test(Path(data_dir))
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -147,7 +148,7 @@ class TestWorkers:
     def test_worker_get_missing(self, tmp_path: Path) -> None:
         """GET /workers/{wid} returns 404 for an unknown worker."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -157,7 +158,7 @@ class TestWorkers:
     def test_worker_check_in(self, tmp_path: Path) -> None:
         """POST /workers/check_in/{wid} returns 200 for known and 404 for unknown."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -173,7 +174,7 @@ class TestWorkers:
     async def test_worker_revive(self, tmp_path: Path) -> None:
         """POST /workers/revive/{wid} revives a dead worker."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -196,7 +197,7 @@ class TestWorkers:
     async def test_worker_revive_unknown(self, tmp_path: Path) -> None:
         """POST /workers/revive/{wid} returns 404 for unknown worker."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -207,7 +208,7 @@ class TestWorkers:
     async def test_worker_revive_alive(self, tmp_path: Path) -> None:
         """POST /workers/revive/{wid} returns 409 for worker that is not dead."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -220,7 +221,7 @@ class TestWorkers:
     async def test_purge_dead_workers(self, tmp_path: Path) -> None:
         """DELETE /workers/dead removes dead workers permanently."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -244,7 +245,7 @@ class TestWorkers:
     async def test_purge_no_dead_workers(self, tmp_path: Path) -> None:
         """DELETE /workers/dead returns 200 even when no dead workers exist."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path))
+            configure_server_for_test(tmp_path)
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -267,7 +268,7 @@ class TestExperiments:
     ) -> None:
         """POST /experiments persists the definition and echoes it back."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -295,7 +296,7 @@ class TestExperiments:
     def test_create_invalid_definition(self, tmp_path: Path) -> None:
         """POST /experiments with malformed definition JSON returns 422."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -313,7 +314,7 @@ class TestExperiments:
     ) -> None:
         """GET /experiments returns every created experiment."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -338,7 +339,7 @@ class TestExperiments:
     def test_get_experiment_missing(self, tmp_path: Path) -> None:
         """GET /experiments/{eid} returns 404 for an unknown experiment."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -352,7 +353,7 @@ class TestExperiments:
     ) -> None:
         """DELETE /experiments/{eid} returns 204 and the experiment is no longer retrievable."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -370,7 +371,7 @@ class TestExperiments:
     def test_delete_experiment_missing(self, tmp_path: Path) -> None:
         """DELETE /experiments/{eid} returns 404 for an unknown eid."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -384,7 +385,7 @@ class TestExperiments:
     ) -> None:
         """DELETE /experiments/{eid} removes the experiment from GET /experiments; siblings unaffected."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -409,7 +410,7 @@ class TestExperiments:
     ) -> None:
         """DELETE /experiments/{eid} returns 500 when the manager raises OSError."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -438,7 +439,7 @@ class TestRuns:
     ) -> None:
         """GET /runs/{eid}/{index}/{iteration} returns every run that the experiment expanded into."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -477,7 +478,7 @@ class TestRuns:
     ) -> None:
         """GET /runs/dispatch streams back the experiment's archive."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -523,7 +524,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/result persists submitted state and results archive."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -577,7 +578,7 @@ class TestRuns:
     def test_run_get_missing(self, tmp_path: Path) -> None:
         """GET /runs/{eid}/{index} returns 404 for an unknown run."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -590,7 +591,7 @@ class TestRuns:
     ) -> None:
         """GET /runs/dispatch returns 204 when no experiments have waiting runs."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:
@@ -605,7 +606,7 @@ class TestRuns:
     ) -> None:
         """GET /runs/dispatch with an unknown wid returns 404."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -623,7 +624,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/result with an unknown wid returns 404."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -659,7 +660,7 @@ class TestRuns:
     ) -> None:
         """GET /runs/{eid}/{index}/results returns the archive after submission, 404 before."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -714,7 +715,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/error persists a failed run state without results archive."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -768,7 +769,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/error with an unknown wid returns 404."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment()
@@ -799,7 +800,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/{eid}/{index}/{iteration}/reset returns WAITING run."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment(params={"x": [1]})
@@ -841,7 +842,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/{eid}/{index}/{iteration}/reset returns 404 for unknown run."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             definition, directory = make_experiment(params={"x": [1]})
@@ -873,7 +874,7 @@ class TestRuns:
     ) -> None:
         """POST /runs/{eid}/{index}/{iteration}/reset returns 404 for unknown experiment."""
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+            configure_server_for_test(tmp_path / "server")
             mp.setenv(SERVER_ADDRESS_ENV, "8086")
 
             with TestClient(server) as client:

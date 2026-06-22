@@ -71,7 +71,7 @@ Repository = "https://gitlab.uni-marburg.de/fb12/ag-freisleben/projects/mprun"
 
 [project.scripts]
 mprun_client = "mprun.client.cli:client"
-mprun_server = "mprun.server:cli"
+mprun_server = "mprun.server.server:cli"
 mprun_worker = "mprun.worker.worker:cli"
 
 [tool.pytest.ini_options]
@@ -168,7 +168,7 @@ ignore = [
 "mprun/client/cli.py" = [
     "FBT", # that's just how CLI flags work...
 ]
-"mprun/server.py" = [
+"mprun/server/server.py" = [
     "FBT", # that's just how CLI flags work...
 ]
 "mprun/worker/worker.py" = [

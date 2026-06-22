@@ -20,8 +20,9 @@ from mprun.models import (
     ExperimentDefinition,
     WorkerRegistration,
 )
-from mprun.server import DATA_PATH_ENV, server
+from mprun.server.server import server
 from mprun.worker_manager import WORKER_TIMEOUT
+from tests.conftest import configure_server_for_test
 
 
 @asynccontextmanager
@@ -30,7 +31,7 @@ async def _patched_async_client(
 ) -> AsyncIterator[tuple[TestClient, httpx.AsyncClient]]:
     """Set up a server and return both a sync TestClient and an async HTTP client."""
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+        configure_server_for_test(tmp_path / "server")
         mp.setenv(SERVER_ADDRESS_ENV, "8086")
         transport = httpx.ASGITransport(app=server)
         async with httpx.AsyncClient(

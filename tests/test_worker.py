@@ -22,20 +22,18 @@ from mprun.models import (
     WorkerData,
     WorkerRegistration,
 )
-from mprun.server import DATA_PATH_ENV, lifespan, server
+from mprun.server.server import lifespan, server
 from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.worker import Worker
+from tests.conftest import configure_server_for_test
 
 
 @pytest.mark.asyncio
 @given(name=st.text())
 async def test_register(name: str) -> None:
     """Test worker registration."""
-    with (
-        TemporaryDirectory(delete=True) as data_dir,
-        pytest.MonkeyPatch.context() as mp,
-    ):
-        mp.setenv(DATA_PATH_ENV, data_dir)
+    with TemporaryDirectory(delete=True) as data_dir:
+        configure_server_for_test(Path(data_dir))
 
         async with (
             lifespan(server),
@@ -57,11 +55,8 @@ async def test_register(name: str) -> None:
 @given(name=st.text())
 async def test_checkin(name: str) -> None:
     """Test worker checkin."""
-    with (
-        TemporaryDirectory(delete=True) as data_dir,
-        pytest.MonkeyPatch.context() as mp,
-    ):
-        mp.setenv(DATA_PATH_ENV, f"{data_dir}/server")
+    with TemporaryDirectory(delete=True) as data_dir:
+        configure_server_for_test(Path(data_dir) / "server")
 
         async with (
             lifespan(server),
@@ -86,48 +81,47 @@ async def test_get_run(
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
     """Worker can fetch dispatched work from the server."""
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+    configure_server_for_test(tmp_path / "server")
 
-        async with (
-            lifespan(server),
-            AsyncClient(
-                transport=ASGITransport(app=server), base_url="http://test"
-            ) as client,
-        ):
-            home_dir = tmp_path / "worker"
-            registration_data = WorkerRegistration(
-                name="test_worker", backend=WorkerBackend.NATIVE
+    async with (
+        lifespan(server),
+        AsyncClient(
+            transport=ASGITransport(app=server), base_url="http://test"
+        ) as client,
+    ):
+        home_dir = tmp_path / "worker"
+        registration_data = WorkerRegistration(
+            name="test_worker", backend=WorkerBackend.NATIVE
+        )
+        metadata = await Worker.register(
+            client=client, registration_data=registration_data
+        )
+        worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+
+        run = await worker.get_work()
+        assert run is None  # no experiment present yet
+
+        definition, experiment_dir = make_experiment()
+        archive_path = definition.create_archive(
+            experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
+        )
+        with archive_path.open("rb") as archive_file:
+            response = await client.post(
+                "/experiments",
+                data={"experiment_definition": definition.model_dump_json()},
+                files={
+                    "archive": (
+                        EXPERIMENT_ARCHIVE_NAME,
+                        archive_file,
+                        "application/zip",
+                    )
+                },
             )
-            metadata = await Worker.register(
-                client=client, registration_data=registration_data
-            )
-            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+            response.raise_for_status()
 
-            run = await worker.get_work()
-            assert run is None  # no experiment present yet
-
-            definition, experiment_dir = make_experiment()
-            archive_path = definition.create_archive(
-                experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
-            )
-            with archive_path.open("rb") as archive_file:
-                response = await client.post(
-                    "/experiments",
-                    data={"experiment_definition": definition.model_dump_json()},
-                    files={
-                        "archive": (
-                            EXPERIMENT_ARCHIVE_NAME,
-                            archive_file,
-                            "application/zip",
-                        )
-                    },
-                )
-                response.raise_for_status()
-
-            run = await worker.get_work()
-            assert run is not None
-            assert worker.archive_path.is_file(follow_symlinks=False)
+        run = await worker.get_work()
+        assert run is not None
+        assert worker.archive_path.is_file(follow_symlinks=False)
 
 
 @pytest.mark.asyncio
@@ -136,60 +130,59 @@ async def test_results_upload(
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
     """Worker uploads results; server reflects the new run state."""
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+    configure_server_for_test(tmp_path / "server")
 
-        async with (
-            lifespan(server),
-            AsyncClient(
-                transport=ASGITransport(app=server), base_url="http://test"
-            ) as client,
-        ):
-            home_dir = tmp_path / "worker"
-            registration_data = WorkerRegistration(
-                name="test_worker", backend=WorkerBackend.NATIVE
+    async with (
+        lifespan(server),
+        AsyncClient(
+            transport=ASGITransport(app=server), base_url="http://test"
+        ) as client,
+    ):
+        home_dir = tmp_path / "worker"
+        registration_data = WorkerRegistration(
+            name="test_worker", backend=WorkerBackend.NATIVE
+        )
+        metadata = await Worker.register(
+            client=client, registration_data=registration_data
+        )
+        worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+
+        definition, experiment_dir = make_experiment()
+        archive_path = definition.create_archive(
+            experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
+        )
+        with archive_path.open("rb") as archive_file:
+            response = await client.post(
+                "/experiments",
+                data={"experiment_definition": definition.model_dump_json()},
+                files={
+                    "archive": (
+                        EXPERIMENT_ARCHIVE_NAME,
+                        archive_file,
+                        "application/zip",
+                    )
+                },
             )
-            metadata = await Worker.register(
-                client=client, registration_data=registration_data
-            )
-            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
-
-            definition, experiment_dir = make_experiment()
-            archive_path = definition.create_archive(
-                experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
-            )
-            with archive_path.open("rb") as archive_file:
-                response = await client.post(
-                    "/experiments",
-                    data={"experiment_definition": definition.model_dump_json()},
-                    files={
-                        "archive": (
-                            EXPERIMENT_ARCHIVE_NAME,
-                            archive_file,
-                            "application/zip",
-                        )
-                    },
-                )
-                response.raise_for_status()
-
-            run = await worker.get_work()
-            assert run is not None
-
-            run.active_state = ActiveState.FINISHED
-            run.success_state = SuccessState.SUCCESS
-
-            home_dir.mkdir(parents=True, exist_ok=True)
-            results_path = home_dir / RESULTS_ARCHIVE_NAME
-            with ZipFile(results_path, mode="w") as zf:
-                zf.writestr("result.txt", "ok")
-
-            await worker.upload_results(run=run)
-
-            response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
             response.raise_for_status()
-            submitted_run = Run.model_validate(response.json())
-            assert submitted_run.active_state == ActiveState.FINISHED
-            assert submitted_run.success_state == SuccessState.SUCCESS
+
+        run = await worker.get_work()
+        assert run is not None
+
+        run.active_state = ActiveState.FINISHED
+        run.success_state = SuccessState.SUCCESS
+
+        home_dir.mkdir(parents=True, exist_ok=True)
+        results_path = home_dir / RESULTS_ARCHIVE_NAME
+        with ZipFile(results_path, mode="w") as zf:
+            zf.writestr("result.txt", "ok")
+
+        await worker.upload_results(run=run)
+
+        response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
+        response.raise_for_status()
+        submitted_run = Run.model_validate(response.json())
+        assert submitted_run.active_state == ActiveState.FINISHED
+        assert submitted_run.success_state == SuccessState.SUCCESS
 
 
 @pytest.mark.asyncio
@@ -198,77 +191,75 @@ async def test_report_error(
     make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
 ) -> None:
     """Worker reports an archive validation error; server records the failure."""
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+    configure_server_for_test(tmp_path / "server")
 
-        async with (
-            lifespan(server),
-            AsyncClient(
-                transport=ASGITransport(app=server), base_url="http://test"
-            ) as client,
-        ):
-            home_dir = tmp_path / "worker"
-            registration_data = WorkerRegistration(
-                name="test_worker", backend=WorkerBackend.NATIVE
+    async with (
+        lifespan(server),
+        AsyncClient(
+            transport=ASGITransport(app=server), base_url="http://test"
+        ) as client,
+    ):
+        home_dir = tmp_path / "worker"
+        registration_data = WorkerRegistration(
+            name="test_worker", backend=WorkerBackend.NATIVE
+        )
+        metadata = await Worker.register(
+            client=client, registration_data=registration_data
+        )
+        worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+
+        definition, experiment_dir = make_experiment()
+        archive_path = definition.create_archive(
+            experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
+        )
+        with archive_path.open("rb") as archive_file:
+            response = await client.post(
+                "/experiments",
+                data={"experiment_definition": definition.model_dump_json()},
+                files={
+                    "archive": (
+                        EXPERIMENT_ARCHIVE_NAME,
+                        archive_file,
+                        "application/zip",
+                    )
+                },
             )
-            metadata = await Worker.register(
-                client=client, registration_data=registration_data
-            )
-            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
-
-            definition, experiment_dir = make_experiment()
-            archive_path = definition.create_archive(
-                experiment_toml=experiment_dir / EXPERIMENT_DEFINITION_NAME
-            )
-            with archive_path.open("rb") as archive_file:
-                response = await client.post(
-                    "/experiments",
-                    data={"experiment_definition": definition.model_dump_json()},
-                    files={
-                        "archive": (
-                            EXPERIMENT_ARCHIVE_NAME,
-                            archive_file,
-                            "application/zip",
-                        )
-                    },
-                )
-                response.raise_for_status()
-
-            run = await worker.get_work()
-            assert run is not None
-
-            failure = RunFailureError(run=run, reason=Exception("BAD_ARCHIVE"))
-
-            await worker.report_error(failure=failure)
-
-            response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
             response.raise_for_status()
-            submitted_run = Run.model_validate(response.json())
-            assert submitted_run.active_state == ActiveState.FINISHED
-            assert submitted_run.success_state == SuccessState.FAILED
-            assert submitted_run.failure_reason == "BAD_ARCHIVE"
+
+        run = await worker.get_work()
+        assert run is not None
+
+        failure = RunFailureError(run=run, reason=Exception("BAD_ARCHIVE"))
+
+        await worker.report_error(failure=failure)
+
+        response = await client.get(f"/runs/{run.eid}/{run.index}/{run.iteration}")
+        response.raise_for_status()
+        submitted_run = Run.model_validate(response.json())
+        assert submitted_run.active_state == ActiveState.FINISHED
+        assert submitted_run.success_state == SuccessState.FAILED
+        assert submitted_run.failure_reason == "BAD_ARCHIVE"
 
 
 @pytest.mark.asyncio
 async def test_get_work_returns_none_when_idle(tmp_path: Path) -> None:
     """get_work returns None when the server has no work."""
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv(DATA_PATH_ENV, str(tmp_path / "server"))
+    configure_server_for_test(tmp_path / "server")
 
-        async with (
-            lifespan(server),
-            AsyncClient(
-                transport=ASGITransport(app=server), base_url="http://test"
-            ) as client,
-        ):
-            home_dir = tmp_path / "worker"
-            metadata = await Worker.register(
-                client=client,
-                registration_data=WorkerRegistration(
-                    name="test_worker", backend=WorkerBackend.NATIVE
-                ),
-            )
-            worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
+    async with (
+        lifespan(server),
+        AsyncClient(
+            transport=ASGITransport(app=server), base_url="http://test"
+        ) as client,
+    ):
+        home_dir = tmp_path / "worker"
+        metadata = await Worker.register(
+            client=client,
+            registration_data=WorkerRegistration(
+                name="test_worker", backend=WorkerBackend.NATIVE
+            ),
+        )
+        worker = Worker(http_client=client, meta_data=metadata, home_dir=home_dir)
 
-            run = await worker.get_work()
-            assert run is None
+        run = await worker.get_work()
+        assert run is None

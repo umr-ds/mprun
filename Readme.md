@@ -19,17 +19,38 @@ pip install --group server .   # or --group worker / --group client
 
 ### Server
 
+The server reads all settings from a TOML config file.
+
 ```bash
-mprun_server [--host HOST] [--port PORT] [-d DIR] [-v]
+mprun_server [-c CONFIG]
 ```
 
-CLI arguments take precedence over environment variables. `--host` and `--port` have no env var equivalent.
+| CLI argument    | Description                                                  |
+|:----------------|:-------------------------------------------------------------|
+| `-c`/`--config` | Path to TOML config file. Defaults to platform config dirs.  |
 
-| CLI argument         | Environment variable | Default                 | Effect                           |
-|:---------------------|:---------------------|:------------------------|:---------------------------------|
-| `--host`             | `MPRUN_SERVER_HOST`  | `127.0.0.1`             | Bind host                        |
-| `--port`             | `MPRUN_SERVER_PORT`  | `8000`                  | Bind port                        |
-| `-d` / `--data-path` | `MPRUN_DATA_PATH`    | platform user data dir  | Directory for database and blobs |
+Config file locations (checked in order):
+
+- `$XDG_CONFIG_HOME/mprun/server.toml` (`~/.config/mprun/server.toml`)
+- `/etc/xdg/mprun/server.toml` (site-wide, per platformdirs)
+
+**Config fields:**
+
+| Field            | Required | Description                                                                         |
+|:-----------------|---------:|:------------------------------------------------------------------------------------|
+| `host`           |      yes | Bind address (e.g. `"127.0.0.1"`, `"0.0.0.0"`)                                      |
+| `port`           |      yes | Bind port (e.g. `8000`)                                                             |
+| `home_directory` |       no | Directory for database and blob storage (defaults to `$XDG_DATA_HOME/mprun/server`) |
+| `log_level`      |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"`                 |
+
+Example:
+
+```toml
+host = "127.0.0.1"
+port = 8000
+home_directory = "/var/lib/mprun/server"
+log_level = "INFO"
+```
 
 ### Worker
 
