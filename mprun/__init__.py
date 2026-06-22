@@ -7,7 +7,7 @@ import platformdirs
 from mprun.custom_types import AppPaths
 
 PACKAGE_NAME = "mprun"
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "DEFAULT_CONFIG_DIRS",
     "DEFAULT_DATA_DIRS",
