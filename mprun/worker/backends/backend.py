@@ -19,9 +19,15 @@ class Backend(Protocol):
 
         Raises:
             RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
+            RunNotPreparedError: If ``prepare_run_environment`` has not been called before, or raised an error.
         """
         ...
 
     async def collect_results(self) -> None:
-        """Package run outputs and result files into a ZIP archive."""
+        """Package run outputs and result files into a ZIP archive.
+
+        Raises:
+            RunFailureError: If packaging results fails.
+            RunNotExecutedError: If ``execute_run`` has not been called before, or raised an error.
+        """
         ...

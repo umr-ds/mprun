@@ -198,3 +198,11 @@ class RunTimeoutError(TimeoutError):
     def __str__(self) -> str:
         """Error's string representation."""
         return f"Timed out after {timedelta(seconds=self.seconds)!s}"
+
+
+class RunNotPreparedError(Exception):
+    """Raised by the worker's execution backend if you try to execute the run before preparing the execution environment."""
+
+
+class RunNotExecutedError(Exception):
+    """Raised by the worker's execution backend if you try to collect results before executing the run."""

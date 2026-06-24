@@ -12,7 +12,13 @@ from typing import BinaryIO
 from zipfile import ZIP_LZMA, ZipFile
 
 from mprun.custom_types import ActiveState
-from mprun.errors import ExecutableReturnError, RunFailureError, RunTimeoutError
+from mprun.errors import (
+    ExecutableReturnError,
+    RunFailureError,
+    RunNotExecutedError,
+    RunNotPreparedError,
+    RunTimeoutError,
+)
 from mprun.models import (
     Run,
     add_path_to_archive,
@@ -30,12 +36,18 @@ class NativeBackend:
         experiment_archive_path (Path): Path to the Run's experiment archive.
         results_archive_path (Path): Path to the Run's (eventual) experiment archive.
         execution_dir (Path): (Temporary directory) for Run execution.
+
+        _prepared (bool): ``True`` if ``self.prepare_run_environment`` has been called, ``False`` otherwise.
+        _executed (bool): ``True`` if ``self.execute_run`` has been called, ``False`` otherwise.
     """
 
     run: Run
     experiment_archive_path: Path
     results_archive_path: Path
     execution_dir: Path
+
+    _prepared: bool = False
+    _executed: bool = False
 
     async def prepare_run_environment(self) -> None:
         """Unpack the experiment archive and build the process environment.
@@ -82,9 +94,10 @@ class NativeBackend:
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
 
+        self._prepared = True
         logger.info("Finished preparing for Run %s", self.run.run_id)
 
-    async def execute(
+    async def _execute(
         self,
         args: list[Path | str],
         stdout: BinaryIO,
@@ -145,7 +158,11 @@ class NativeBackend:
 
         Raises:
             RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
+            RunNotPreparedError: If ``prepare_run_environment`` has not been called before, or raised an error.
         """
+        if not self._prepared:
+            raise RunNotPreparedError
+
         logger.info("Executing Run %s", self.run.run_id)
 
         try:
@@ -162,7 +179,7 @@ class NativeBackend:
                     setup_stdout_path.open("wb") as setup_stdout_file,
                     setup_stderr_path.open("wb") as setup_stderr_file,
                 ):
-                    await self.execute(
+                    await self._execute(
                         args=[program],
                         stdout=setup_stdout_file,
                         stderr=setup_stderr_file,
@@ -181,7 +198,7 @@ class NativeBackend:
                 stderr_path.open("wb") as stderr_file,
             ):
                 self.run.active_state = ActiveState.RUNNING
-                await self.execute(
+                await self._execute(
                     args=args,
                     stdout=stdout_file,
                     stderr=stderr_file,
@@ -192,6 +209,7 @@ class NativeBackend:
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
 
+        self._executed = True
         logger.info("Finished executing Run %s", self.run.run_id)
 
     async def _add_result(
@@ -233,7 +251,11 @@ class NativeBackend:
 
         Raises:
             RunFailureError: If packaging results fails.
+            RunNotExecutedError: If ``execute_run`` has not been called before, or raised an error.
         """
+        if not self._executed:
+            raise RunNotExecutedError
+
         logger.info("Collecting results for %s", self.run.run_id)
 
         try:

@@ -6,9 +6,10 @@ from pathlib import Path
 from shutil import unpack_archive
 
 from docker import DockerClient
+from docker.models.containers import Container
 from docker.models.images import Image
 
-from mprun.errors import RunFailureError
+from mprun.errors import RunFailureError, RunNotExecutedError, RunNotPreparedError
 from mprun.models import Run
 from mprun.worker.config import DockerBackendConfig
 
@@ -24,10 +25,16 @@ class DockerBackend:
     Attributes:
         config (DockerBackendConfig): Config for this execution backend.
         docker_client (DockerClient): Client connected to the docker daemon.
+
         run (Run): The run that's going to be executed.
         experiment_archive_path (Path): Path to the Run's experiment archive.
         results_archive_path (Path): Path to the Run's (eventual) experiment archive.
         execution_dir (Path): (Temporary directory) for Run execution.
+
+        _run_image (Image | None): Metadata of the docker image for this run.
+            ``None`` if ``self.prepare_run_environment`` has not been executed.
+        _run_container (Container | None): Container in which the run has been executed.
+            ``None`` if ``self.execute_run`` has not been executed.
     """
 
     config: DockerBackendConfig
@@ -38,7 +45,8 @@ class DockerBackend:
     results_archive_path: Path
     execution_dir: Path
 
-    run_image: Image | None = None
+    _run_image: Image | None = None
+    _run_container: Container | None = None
 
     def __init__(
         self,
@@ -87,7 +95,7 @@ class DockerBackend:
             image, build_logs = await to_thread(
                 self.docker_client.images.build, path=str(self.execution_dir), pull=True
             )
-            self.run_image = image
+            self._run_image = image
             with (self.execution_dir / DOCKER_BUILD_LOGS).open("rb") as f:
                 f.write(build_logs)
         except Exception as err:
@@ -102,8 +110,14 @@ class DockerBackend:
         Raises:
             RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
         """
+        if self._run_image is None:
+            raise RunNotPreparedError
+
         # TODO: run experiment inside container
 
     async def collect_results(self) -> None:
         """Package run outputs and result files into a ZIP archive."""
+        if self._run_container is None:
+            raise RunNotExecutedError
+
         # TODO: collect results from inside container
