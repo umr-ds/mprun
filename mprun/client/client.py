@@ -10,6 +10,13 @@ from httpx import AsyncClient, HTTPStatusError, codes
 from typer import echo
 
 from mprun.custom_types import RunId
+from mprun.endpoints import (
+    ENDPOINT_EXPERIMENT,
+    ENDPOINT_EXPERIMENTS,
+    ENDPOINT_RUN_RESET,
+    ENDPOINT_RUN_RESULTS,
+    ENDPOINT_WORKERS_DEAD,
+)
 from mprun.models import Experiment, ExperimentDefinition, Run, ValidationMode
 
 DEFAULT_URL = "http://localhost:8000"
@@ -91,7 +98,9 @@ async def download_run_results(
         HTTPStatusError: If the server returns any non-2xx response other than 404.
     """
     try:
-        resp = await http_client.get(f"/runs/{eid}/{index}/{iteration}/results")
+        resp = await http_client.get(
+            ENDPOINT_RUN_RESULTS.format(eid=eid, index=index, iteration=iteration)
+        )
         resp.raise_for_status()
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
@@ -192,7 +201,7 @@ async def submit_experiment(
 
     with archive_path.open("rb") as archive_file:
         resp = await http_client.post(
-            "/experiments",
+            ENDPOINT_EXPERIMENTS,
             data={"experiment_definition": definition.model_dump_json()},
             files={
                 "archive": (
@@ -217,7 +226,7 @@ async def purge_dead_workers(
     Raises:
         HTTPStatusError: If the server returns a non-2xx response.
     """
-    resp = await http_client.delete("/workers/dead")
+    resp = await http_client.delete(ENDPOINT_WORKERS_DEAD)
     resp.raise_for_status()
 
 
@@ -235,7 +244,7 @@ async def delete_experiment(
         HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found,
             500 if the server fails to remove the experiment data from disk).
     """
-    resp = await http_client.delete(f"/experiments/{eid}")
+    resp = await http_client.delete(ENDPOINT_EXPERIMENT.format(eid=eid))
     resp.raise_for_status()
 
 
@@ -255,6 +264,8 @@ async def reset_run(
     Raises:
         HTTPStatusError: If the server returns a non-2xx response (e.g. 404 if not found).
     """
-    resp = await http_client.post(f"/runs/{rid.eid}/{rid.index}/{rid.iteration}/reset")
+    resp = await http_client.post(
+        ENDPOINT_RUN_RESET.format(eid=rid.eid, index=rid.index, iteration=rid.iteration)
+    )
     resp.raise_for_status()
     return Run.model_validate(resp.json())

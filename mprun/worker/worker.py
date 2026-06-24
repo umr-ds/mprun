@@ -20,6 +20,14 @@ from pydantic import ValidationError
 from typer import Exit, Option, Typer
 
 from mprun.custom_types import ActiveState, SuccessState, WorkerBackend
+from mprun.endpoints import (
+    ENDPOINT_RUNS_DISPATCH,
+    ENDPOINT_RUNS_ERROR,
+    ENDPOINT_RUNS_RESULT,
+    ENDPOINT_WORKER_CHECK_IN,
+    ENDPOINT_WORKER_REVIVE,
+    ENDPOINT_WORKERS,
+)
 from mprun.errors import (
     ArchiveValidationError,
     InconsistentConfigurationError,
@@ -108,7 +116,7 @@ class Worker:
         """
         logger.info("Registering with server")
         response = await client.post(
-            "/workers",
+            ENDPOINT_WORKERS,
             data={"registration": registration_data.model_dump_json()},
         )
         response.raise_for_status()
@@ -136,7 +144,7 @@ class Worker:
             HTTPStatusError: If the server returns a non-2xx response (except 409).
         """
         logger.info("Attempting to revive")
-        response = await client.post(f"/workers/revive/{wid}")
+        response = await client.post(ENDPOINT_WORKER_REVIVE.format(wid=wid))
         if response.status_code == HTTPStatus.CONFLICT:
             logger.info(
                 "Server responded with status 409: We were not marked as dead yet"
@@ -320,7 +328,7 @@ class Worker:
         """
         logger.debug("Have no work to do, asking the server...")
         async with self.http_client.stream(
-            "GET", "/runs/dispatch", params={"wid": self.meta_data.wid}
+            "GET", ENDPOINT_RUNS_DISPATCH, params={"wid": self.meta_data.wid}
         ) as response:
             response.raise_for_status()
 
@@ -389,7 +397,7 @@ class Worker:
             failure.run.failure_reason,
         )
         response = await self.http_client.post(
-            "/runs/error",
+            ENDPOINT_RUNS_ERROR,
             params={"wid": self.meta_data.wid},
             data={"run": failure.run.model_dump_json()},
         )
@@ -408,7 +416,7 @@ class Worker:
         logger.info("Uploading results for run %s", run.run_id)
         with self.results_archive_path.open("rb") as f:
             response = await self.http_client.post(
-                "/runs/result",
+                ENDPOINT_RUNS_RESULT,
                 params={"wid": self.meta_data.wid},
                 data={"run": run.model_dump_json()},
                 files={"results_archive": (RESULTS_ARCHIVE_NAME, f, "application/zip")},
@@ -442,7 +450,7 @@ class Worker:
         """
         logger.debug("Performing worker check in")
         response = await self.http_client.post(
-            f"/workers/check_in/{self.meta_data.wid}"
+            ENDPOINT_WORKER_CHECK_IN.format(wid=self.meta_data.wid)
         )
         response.raise_for_status()
         self.meta_data.last_check_in = time()

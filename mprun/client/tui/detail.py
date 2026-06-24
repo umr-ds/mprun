@@ -15,6 +15,7 @@ from mprun.client.client import _fmt_duration, _fmt_ts, download_run_results, re
 from mprun.client.tui import REFRESH_TIME
 from mprun.client.tui.confirmations import ConfirmDownloadDialogue, ConfirmResetDialogue
 from mprun.custom_types import RunId
+from mprun.endpoints import ENDPOINT_EXPERIMENT
 
 
 class DetailView(Screen[None]):
@@ -59,7 +60,7 @@ class DetailView(Screen[None]):
         """Fetch experiment from server and update the run list."""
         async with httpx.AsyncClient(base_url=self.base_url) as http:
             try:
-                resp = await http.get(f"/experiments/{self.eid}")
+                resp = await http.get(ENDPOINT_EXPERIMENT.format(eid=self.eid))
                 resp.raise_for_status()
                 exp = resp.json()
             except httpx.HTTPStatusError as err:

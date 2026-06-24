@@ -13,6 +13,7 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 from mprun.client.client import _fmt_ts, purge_dead_workers
 from mprun.client.tui import REFRESH_TIME
 from mprun.client.tui.confirmations import ConfirmPurgeDialogue
+from mprun.endpoints import ENDPOINT_WORKERS
 from mprun.models import WorkerData
 
 
@@ -61,7 +62,7 @@ class WorkerView(Screen[None]):
         """Fetch workers from server and update the list."""
         async with httpx.AsyncClient(base_url=self.base_url) as http:
             try:
-                resp = await http.get("/workers")
+                resp = await http.get(ENDPOINT_WORKERS)
                 resp.raise_for_status()
                 data = resp.json()
             except httpx.HTTPStatusError as err:

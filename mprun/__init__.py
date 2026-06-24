@@ -17,6 +17,7 @@ __all__ = [
     "__version__",
     "client",
     "custom_types",
+    "endpoints",
     "errors",
     "experiment_manager",
     "log",

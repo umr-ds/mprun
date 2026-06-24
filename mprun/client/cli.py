@@ -35,6 +35,11 @@ from mprun.client.config import (
 )
 from mprun.client.tui import run_tui
 from mprun.custom_types import RunId
+from mprun.endpoints import (
+    ENDPOINT_EXPERIMENT,
+    ENDPOINT_EXPERIMENTS,
+    ENDPOINT_WORKERS,
+)
 from mprun.models import Experiment, WorkerData
 
 console = Console()
@@ -209,7 +214,7 @@ async def list_experiments(
     """Get list of all experiments."""
     try:
         async with _client_factory(ctx.obj["base_url"]) as http:
-            resp = await http.get("/experiments")
+            resp = await http.get(ENDPOINT_EXPERIMENTS)
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
         raise Exit(1) from err
@@ -241,7 +246,7 @@ async def get_experiment(
     """Get specific experiment by its ID."""
     try:
         async with _client_factory(ctx.obj["base_url"]) as http:
-            resp = await http.get(f"/experiments/{eid}")
+            resp = await http.get(ENDPOINT_EXPERIMENT.format(eid=eid))
     except HTTPStatusError as err:
         if err.response.status_code == codes.NOT_FOUND:
             echo(f"No experiment with ID {eid}", err=True)
@@ -354,7 +359,7 @@ async def list_workers(
     """Get list of all registered workers."""
     try:
         async with _client_factory(ctx.obj["base_url"]) as http:
-            resp = await http.get("/workers")
+            resp = await http.get(ENDPOINT_WORKERS)
     except HTTPStatusError as err:
         echo(f"HTTP Error: {err}", err=True)
         raise Exit(1) from err
@@ -471,7 +476,7 @@ async def get_experiment_results_cmd(
     """Download results for all runs in an experiment in parallel."""
     try:
         async with _client_factory(ctx.obj["base_url"]) as http:
-            resp = await http.get(f"/experiments/{eid}")
+            resp = await http.get(ENDPOINT_EXPERIMENT.format(eid=eid))
             resp.raise_for_status()
 
             try:

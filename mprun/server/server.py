@@ -26,6 +26,22 @@ from typer import Exit, Option, Typer
 
 from mprun import PACKAGE_NAME, __version__
 from mprun.custom_types import RunId
+from mprun.endpoints import (
+    ENDPOINT_EXPERIMENT,
+    ENDPOINT_EXPERIMENT_ARCHIVE,
+    ENDPOINT_EXPERIMENTS,
+    ENDPOINT_RUN,
+    ENDPOINT_RUN_RESET,
+    ENDPOINT_RUN_RESULTS,
+    ENDPOINT_RUNS_DISPATCH,
+    ENDPOINT_RUNS_ERROR,
+    ENDPOINT_RUNS_RESULT,
+    ENDPOINT_WORKER,
+    ENDPOINT_WORKER_CHECK_IN,
+    ENDPOINT_WORKER_REVIVE,
+    ENDPOINT_WORKERS,
+    ENDPOINT_WORKERS_DEAD,
+)
 from mprun.errors import (
     ArchiveValidationError,
     InvalidParametersError,
@@ -98,7 +114,9 @@ def get_worker_manager(request: Request) -> WorkerManager:
     return request.app.state.worker_manager
 
 
-@server.post("/experiments", response_model=Experiment, status_code=HTTPStatus.CREATED)
+@server.post(
+    ENDPOINT_EXPERIMENTS, response_model=Experiment, status_code=HTTPStatus.CREATED
+)
 async def create_experiment(
     experiment_definition: str = Form(...),
     archive: UploadFile = File(...),
@@ -138,7 +156,7 @@ async def create_experiment(
     return experiment
 
 
-@server.get("/experiments", response_model=list[Experiment])
+@server.get(ENDPOINT_EXPERIMENTS, response_model=list[Experiment])
 async def list_experiments(
     em: ExperimentManager = Depends(get_experiment_manager),
 ) -> list[Experiment]:
@@ -147,7 +165,7 @@ async def list_experiments(
     return await em.get_all()
 
 
-@server.get("/experiments/{eid}", response_model=Experiment)
+@server.get(ENDPOINT_EXPERIMENT, response_model=Experiment)
 async def get_experiment(
     eid: int,
     em: ExperimentManager = Depends(get_experiment_manager),
@@ -160,7 +178,7 @@ async def get_experiment(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.get("/experiments/{eid}/archive")
+@server.get(ENDPOINT_EXPERIMENT_ARCHIVE)
 async def get_experiment_archive(
     eid: int,
     em: ExperimentManager = Depends(get_experiment_manager),
@@ -174,7 +192,7 @@ async def get_experiment_archive(
     return FileResponse(path=path, media_type="application/zip", filename=path.name)
 
 
-@server.delete("/experiments/{eid}")
+@server.delete(ENDPOINT_EXPERIMENT)
 async def delete_experiment(
     eid: int,
     em: ExperimentManager = Depends(get_experiment_manager),
@@ -197,7 +215,7 @@ async def delete_experiment(
         ) from err
 
 
-@server.get("/runs/dispatch", response_model=None)
+@server.get(ENDPOINT_RUNS_DISPATCH, response_model=None)
 async def dispatch_run(
     wid: int,
     em: ExperimentManager = Depends(get_experiment_manager),
@@ -227,7 +245,7 @@ async def dispatch_run(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/runs/result")
+@server.post(ENDPOINT_RUNS_RESULT)
 async def run_results(
     wid: int,
     run: str = Form(...),
@@ -256,7 +274,7 @@ async def run_results(
         ) from err
 
 
-@server.post("/runs/error")
+@server.post(ENDPOINT_RUNS_ERROR)
 async def run_error(
     wid: int,
     run: str = Form(...),
@@ -285,7 +303,7 @@ async def run_error(
         ) from err
 
 
-@server.get("/runs/{eid}/{index}/{iteration}", response_model=Run)
+@server.get(ENDPOINT_RUN, response_model=Run)
 async def get_run(
     eid: int,
     index: int,
@@ -299,7 +317,7 @@ async def get_run(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.get("/runs/{eid}/{index}/{iteration}/results")
+@server.get(ENDPOINT_RUN_RESULTS)
 async def get_run_results(
     eid: int,
     index: int,
@@ -315,7 +333,7 @@ async def get_run_results(
     return FileResponse(path=path, media_type="application/zip", filename=path.name)
 
 
-@server.post("/runs/{eid}/{index}/{iteration}/reset", response_model=Run)
+@server.post(ENDPOINT_RUN_RESET, response_model=Run)
 async def reset_run(
     eid: int,
     index: int,
@@ -331,7 +349,9 @@ async def reset_run(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/workers", response_model=WorkerData, status_code=HTTPStatus.CREATED)
+@server.post(
+    ENDPOINT_WORKERS, response_model=WorkerData, status_code=HTTPStatus.CREATED
+)
 async def register_worker(
     registration: str = Form(...),
     wm: WorkerManager = Depends(get_worker_manager),
@@ -343,7 +363,7 @@ async def register_worker(
     return await wm.register(registration_data=registration_data)
 
 
-@server.get("/workers", response_model=list[WorkerData])
+@server.get(ENDPOINT_WORKERS, response_model=list[WorkerData])
 async def list_workers(
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> list[WorkerData]:
@@ -352,7 +372,7 @@ async def list_workers(
     return await wm.get_all()
 
 
-@server.get("/workers/{wid}", response_model=WorkerData)
+@server.get(ENDPOINT_WORKER, response_model=WorkerData)
 async def get_worker(
     wid: int,
     wm: WorkerManager = Depends(get_worker_manager),
@@ -365,7 +385,7 @@ async def get_worker(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/workers/check_in/{wid}")
+@server.post(ENDPOINT_WORKER_CHECK_IN)
 async def check_in_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> Response:
@@ -378,7 +398,7 @@ async def check_in_worker(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(err)) from err
 
 
-@server.post("/workers/revive/{wid}", response_model=WorkerData)
+@server.post(ENDPOINT_WORKER_REVIVE, response_model=WorkerData)
 async def revive_worker(
     wid: int, wm: WorkerManager = Depends(get_worker_manager)
 ) -> WorkerData:
@@ -392,7 +412,7 @@ async def revive_worker(
         raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=str(err)) from err
 
 
-@server.delete("/workers/dead")
+@server.delete(ENDPOINT_WORKERS_DEAD)
 async def purge_dead_workers(
     wm: WorkerManager = Depends(get_worker_manager),
 ) -> Response:

@@ -26,6 +26,7 @@ from mprun.client.tui.confirmations import (
     ConfirmDownloadDialogue,
 )
 from mprun.client.tui.detail import DetailView
+from mprun.endpoints import ENDPOINT_EXPERIMENTS
 from mprun.models import Experiment
 
 
@@ -75,7 +76,7 @@ class OverViewScreen(Screen[None]):
         """Fetch experiments from server and update the list."""
         async with httpx.AsyncClient(base_url=self.base_url) as http:
             try:
-                resp = await http.get("/experiments")
+                resp = await http.get(ENDPOINT_EXPERIMENTS)
                 resp.raise_for_status()
                 experiments = resp.json()
             except httpx.HTTPStatusError as err:
