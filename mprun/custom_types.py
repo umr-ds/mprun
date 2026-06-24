@@ -97,3 +97,4 @@ class WorkerBackend(StrEnum):
     """Possible worker backends."""
 
     NATIVE = "NATIVE"
+    DOCKER = "DOCKER"

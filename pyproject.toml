@@ -53,6 +53,7 @@ client = [
     "textual~=8.2.7",
 ]
 worker = [
+    "docker~=7.1.0",
     "httpx~=0.28.1",
 ]
 dev = [

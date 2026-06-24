@@ -40,7 +40,7 @@ from mprun.models import (
     WorkerData,
     WorkerRegistration,
 )
-from mprun.worker.backends import Backend, NativeBackend
+from mprun.worker.backends import Backend, DockerBackend, NativeBackend
 from mprun.worker.config import (
     WorkerConfig,
     load_worker_config,
@@ -257,15 +257,7 @@ class Worker:
         """
         with TemporaryDirectory(delete=True) as tmp_dir:
             execution_dir = Path(tmp_dir)
-            backend: Backend
-            match self.meta_data.registration_data.backend:
-                case WorkerBackend.NATIVE:
-                    backend = NativeBackend(
-                        run=run,
-                        experiment_archive_path=self.experiment_archive_path,
-                        results_archive_path=self.results_archive_path,
-                        execution_dir=execution_dir,
-                    )
+            backend = self._select_backend(run=run, execution_dir=execution_dir)
 
             try:
                 await backend.prepare_run_environment()
@@ -314,6 +306,23 @@ class Worker:
                 logger.exception("Failed uploading results")
             except Exception:
                 logger.exception("Unexpected error uploading results")
+
+    def _select_backend(self, run: Run, execution_dir: Path) -> Backend:
+        match self.meta_data.registration_data.backend:
+            case WorkerBackend.NATIVE:
+                return NativeBackend(
+                    run=run,
+                    experiment_archive_path=self.experiment_archive_path,
+                    results_archive_path=self.results_archive_path,
+                    execution_dir=execution_dir,
+                )
+            case WorkerBackend.DOCKER:
+                return DockerBackend(
+                    config=self.config.docker_backend,
+                    experiment_archive_path=self.experiment_archive_path,
+                    results_archive_path=self.results_archive_path,
+                    execution_dir=execution_dir,
+                )
 
     async def get_work(self) -> Run | None:
         """Query the server for a waiting run.

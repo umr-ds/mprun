@@ -19,6 +19,16 @@ DEFAULT_WORKER_CONFIG_PATHS = AppPaths(
 )
 
 
+class DockerBackendConfig(BaseModel):
+    """Configuration for the docker execution backend.
+
+    Attributes:
+        base_url (str): URL or UNIX socket where the docker daemon is listening.
+    """
+
+    base_url: str = "unix:///var/run/docker.sock"
+
+
 class WorkerConfig(BaseModel):
     """Worker configuration, loaded from a TOML file.
 
@@ -27,14 +37,18 @@ class WorkerConfig(BaseModel):
         name (str): Worker's (human-readable) name. Does not have to be unique.
         home_directory (Path): Path to the Worker's home directory. Used to store metadata, registration data, archives, etc.
         log_level (int): Set's Worker's logging level.
+
         backend (WorkerBackend): Select backend for Worker. See ``mprun.custom_types.WorkerBackend``.
+        docker_backend (DockerBackendConfig): cConfiguration for the docker execution backend.
     """
 
     server_address: str
     name: str
     home_directory: Path = DEFAULT_DATA_DIRS.user / "worker"
     log_level: int = logging.INFO
+
     backend: WorkerBackend = WorkerBackend.NATIVE
+    docker_backend: DockerBackendConfig = DockerBackendConfig()
 
     @field_validator("server_address", mode="before")
     @classmethod
