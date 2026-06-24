@@ -11,7 +11,6 @@ from shutil import copy, copytree, unpack_archive
 from typing import BinaryIO
 from zipfile import ZIP_LZMA, ZipFile
 
-from mprun.custom_types import ActiveState
 from mprun.errors import (
     ExecutableReturnError,
     RunFailureError,
@@ -118,7 +117,7 @@ class NativeBackend:
         logger.debug("Executing: %s", args)
 
         try:
-            process = await asyncio.subprocess.create_subprocess_exec(
+            process = await asyncio.create_subprocess_exec(
                 *args,
                 shell=False,
                 stdout=stdout,
@@ -197,7 +196,6 @@ class NativeBackend:
                 stdout_path.open("wb") as stdout_file,
                 stderr_path.open("wb") as stderr_file,
             ):
-                self.run.active_state = ActiveState.RUNNING
                 await self._execute(
                     args=args,
                     stdout=stdout_file,

@@ -269,6 +269,7 @@ class Worker:
                 return
 
             try:
+                run.active_state = ActiveState.RUNNING
                 await backend.execute_run()
                 logger.info("Finished execution")
                 run.success_state = SuccessState.SUCCESS
