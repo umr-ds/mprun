@@ -17,7 +17,6 @@ from mprun.models import (
     Run,
     add_path_to_archive,
 )
-from mprun.worker import RESULTS_ARCHIVE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +27,14 @@ class NativeBackend:
 
     Attributes:
         run (Run): The run that's going to be executed.
-        archive_path (Path): Path to the Run's experiment archive.
-        home_dir (Path): Worker's home directory - necessary for building the results archive.
+        experiment_archive_path (Path): Path to the Run's experiment archive.
+        results_archive_path (Path): Path to the Run's (eventual) experiment archive.
         execution_dir (Path): (Temporary directory) for Run execution.
     """
 
     run: Run
-    archive_path: Path
-    home_dir: Path
+    experiment_archive_path: Path
+    results_archive_path: Path
     execution_dir: Path
 
     async def prepare_run_environment(self) -> None:
@@ -54,7 +53,7 @@ class NativeBackend:
         try:
             await to_thread(
                 unpack_archive,
-                filename=self.archive_path,
+                filename=self.experiment_archive_path,
                 extract_dir=self.execution_dir,
                 format="zip",
             )
@@ -238,9 +237,11 @@ class NativeBackend:
         logger.info("Collecting results for %s", self.run.run_id)
 
         try:
-            archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
             with ZipFile(
-                archive_path, mode="w", compression=ZIP_LZMA, allowZip64=True
+                self.results_archive_path,
+                mode="w",
+                compression=ZIP_LZMA,
+                allowZip64=True,
             ) as zf:
                 setup_stdout_path = self.execution_dir / "stdout.setup"
                 if await to_thread(setup_stdout_path.is_file):

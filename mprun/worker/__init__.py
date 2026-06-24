@@ -1,5 +1,6 @@
 """Worker daemon package."""
 
-__all__ = ["RESULTS_ARCHIVE_NAME", "backends", "config", "worker"]
+from mprun.worker.config import WorkerConfig
+from mprun.worker.worker import Worker
 
-RESULTS_ARCHIVE_NAME = "results.zip"
+__all__ = ["Worker", "WorkerConfig", "backends", "config", "worker"]

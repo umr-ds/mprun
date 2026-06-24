@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the mprun test suite."""
+"""Shared pytest fixtures for the ``mprun`` test suite."""
 
 from collections.abc import Callable
 from io import BytesIO
@@ -58,6 +58,9 @@ TEST_EXPERIMENT = ExperimentDefinition(
     },
     environment_files={"envfile.txt": "/tmp/envfile"},
 )
+
+
+TEST_SERVER_PORT = 8086
 
 
 def copy_experiment_to_test_environment(

@@ -13,23 +13,23 @@ from mprun.models import (
     Experiment,
     ExperimentDefinition,
 )
-from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.backends import NativeBackend
+from mprun.worker.worker import RESULTS_ARCHIVE_NAME
 from tests.conftest import copy_experiment_to_test_environment
 
 
 def _make_backend(
-    home_dir: Path,
     definition: ExperimentDefinition,
-    archive_path: Path,
+    experiment_archive_path: Path,
+    results_archive_path: Path,
     execution_dir: Path,
 ) -> NativeBackend:
     """Build a NativeBackend for the first run of the given experiment."""
     run = Experiment.new(definition=definition).runs[0][0]
     return NativeBackend(
         run=run,
-        archive_path=archive_path,
-        home_dir=home_dir,
+        experiment_archive_path=experiment_archive_path,
+        results_archive_path=results_archive_path,
         execution_dir=execution_dir,
     )
 
@@ -40,18 +40,16 @@ async def test_execute_run(tmp_path: Path) -> None:
     experiment_definition, experiment_definition_path = (
         copy_experiment_to_test_environment(directory=tmp_path)
     )
-    archive_path = experiment_definition.create_archive(
+    experiment_archive_path = experiment_definition.create_archive(
         experiment_toml=experiment_definition_path
     )
-
-    home_dir = tmp_path / "worker"
-    home_dir.mkdir(parents=True, exist_ok=True)
+    results_archive_path = tmp_path / RESULTS_ARCHIVE_NAME
 
     with TemporaryDirectory() as exec_dir:
         backend = _make_backend(
-            home_dir=home_dir,
             definition=experiment_definition,
-            archive_path=archive_path,
+            experiment_archive_path=experiment_archive_path,
+            results_archive_path=results_archive_path,
             execution_dir=Path(exec_dir),
         )
         await backend.prepare_run_environment()
@@ -66,19 +64,17 @@ async def test_collect_results(tmp_path: Path) -> None:
     experiment_definition, experiment_definition_path = (
         copy_experiment_to_test_environment(directory=tmp_path)
     )
-    archive_path = experiment_definition.create_archive(
+    experiment_archive_path = experiment_definition.create_archive(
         experiment_toml=experiment_definition_path
     )
-
-    home_dir = tmp_path / "worker"
-    home_dir.mkdir(parents=True, exist_ok=True)
+    results_archive_path = tmp_path / RESULTS_ARCHIVE_NAME
 
     with TemporaryDirectory() as exec_dir:
         exec_path = Path(exec_dir)
         backend = _make_backend(
-            home_dir=home_dir,
             definition=experiment_definition,
-            archive_path=archive_path,
+            experiment_archive_path=experiment_archive_path,
+            results_archive_path=results_archive_path,
             execution_dir=exec_path,
         )
         await backend.prepare_run_environment()
@@ -86,10 +82,9 @@ async def test_collect_results(tmp_path: Path) -> None:
 
         await backend.collect_results()
 
-    results_archive = home_dir / RESULTS_ARCHIVE_NAME
-    assert results_archive.is_file()
+    assert results_archive_path.is_file()
 
-    with ZipFile(results_archive, "r") as zf:
+    with ZipFile(results_archive_path, "r") as zf:
         contents = zf.namelist()
         assert "stdout.setup" in contents
         assert "stderr.setup" in contents
@@ -111,18 +106,16 @@ async def test_execute_run_fails_when_main_exits_nonzero(
     definition, directory = make_experiment(
         executable_content="#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
     )
-    archive_path = definition.create_archive(
+    experiment_archive_path = definition.create_archive(
         experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
     )
-
-    home_dir = tmp_path / "worker"
-    home_dir.mkdir(parents=True, exist_ok=True)
+    results_archive_path = tmp_path / RESULTS_ARCHIVE_NAME
 
     with TemporaryDirectory() as exec_dir:
         backend = _make_backend(
-            home_dir=home_dir,
             definition=definition,
-            archive_path=archive_path,
+            experiment_archive_path=experiment_archive_path,
+            results_archive_path=results_archive_path,
             execution_dir=Path(exec_dir),
         )
         await backend.prepare_run_environment()
@@ -140,18 +133,16 @@ async def test_execute_run_fails_when_setup_exits_nonzero(
         setup=True,
         setup_content="#!/usr/bin/env python3\nimport sys; sys.exit(2)\n",
     )
-    archive_path = definition.create_archive(
+    experiment_archive_path = definition.create_archive(
         experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
     )
-
-    home_dir = tmp_path / "worker"
-    home_dir.mkdir(parents=True, exist_ok=True)
+    results_archive_path = tmp_path / RESULTS_ARCHIVE_NAME
 
     with TemporaryDirectory() as exec_dir:
         backend = _make_backend(
-            home_dir=home_dir,
             definition=definition,
-            archive_path=archive_path,
+            experiment_archive_path=experiment_archive_path,
+            results_archive_path=results_archive_path,
             execution_dir=Path(exec_dir),
         )
         await backend.prepare_run_environment()
@@ -173,19 +164,17 @@ async def test_execute_run_passes_env_vars_to_subprocess(
         ),
         environment_variables={"MPRUN_TEST": "hello"},
     )
-    archive_path = definition.create_archive(
+    experiment_archive_path = definition.create_archive(
         experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
     )
-
-    home_dir = tmp_path / "worker"
-    home_dir.mkdir(parents=True, exist_ok=True)
+    results_archive_path = tmp_path / RESULTS_ARCHIVE_NAME
 
     with TemporaryDirectory() as exec_dir:
         exec_path = Path(exec_dir)
         backend = _make_backend(
-            home_dir=home_dir,
             definition=definition,
-            archive_path=archive_path,
+            experiment_archive_path=experiment_archive_path,
+            results_archive_path=results_archive_path,
             execution_dir=exec_path,
         )
         await backend.prepare_run_environment()

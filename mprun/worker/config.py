@@ -20,7 +20,15 @@ DEFAULT_WORKER_CONFIG_PATHS = AppPaths(
 
 
 class WorkerConfig(BaseModel):
-    """Worker configuration, loaded from a TOML file."""
+    """Worker configuration, loaded from a TOML file.
+
+    Attributes:
+        server_address (str): Address of the ``mprun``-server.
+        name (str): Worker's (human-readable) name. Does not have to be unique.
+        home_directory (Path): Path to the Worker's home directory. Used to store metadata, registration data, archives, etc.
+        log_level (int): Set's Worker's logging level.
+        backend (WorkerBackend): Select backend for Worker. See ``mprun.custom_types.WorkerBackend``.
+    """
 
     server_address: str
     name: str
@@ -59,7 +67,8 @@ class WorkerConfig(BaseModel):
         msg = f"log_level must be str or int, got {type(v)}"
         raise ValueError(msg)
 
-    def get_registration_data(self) -> WorkerRegistration:
+    @property
+    def registration_data(self) -> WorkerRegistration:
         """Extracts the relevant data that needs to be sent to the server for registration."""
         return WorkerRegistration(name=self.name, backend=self.backend)
 

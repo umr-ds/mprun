@@ -32,7 +32,6 @@ from mprun.models import (
     WorkerData,
     WorkerRegistration,
 )
-from mprun.worker import RESULTS_ARCHIVE_NAME
 from mprun.worker.backends import Backend, NativeBackend
 from mprun.worker.config import (
     WorkerConfig,
@@ -45,6 +44,7 @@ cli = Typer()
 
 REGISTRATION_FILE_NAME = "registration.json"
 METADATA_FILE_NAME = "metadata.json"
+RESULTS_ARCHIVE_NAME = "results.zip"
 SLEEP_TIME = 60
 
 
@@ -52,35 +52,43 @@ class Worker:
     """Worker daemon that polls the server for runs, executes them, and uploads their results.
 
     Attributes:
+        config (WorkerConfig): Worker configuration.
         http_client (AsyncClient): HTTP client configured with the server's base URL.
         meta_data (WorkerData): Worker metadata returned by the server on registration.
-        home_dir (Path): Root directory for worker-local data (archives, results).
-        archive_path (Path): Destination path for the current experiment's ZIP archive.
         _runner_task (Task): Background asyncio task running ``executor_loop``.
     """
 
+    config: WorkerConfig
     http_client: AsyncClient
     meta_data: WorkerData
-    home_dir: Path
-    archive_path: Path
 
     _runner_task: Task[None]
 
     def __init__(
-        self, http_client: AsyncClient, meta_data: WorkerData, home_dir: Path
+        self, config: WorkerConfig, http_client: AsyncClient, meta_data: WorkerData
     ) -> None:
         """Initialise the Worker.
 
         Args:
+            config (WorkerConfig): Worker configuration.
             http_client (AsyncClient): Configured HTTP client pointing to the server's base URL.
             meta_data (WorkerData): Worker metadata obtained from the server during registration.
-            home_dir (Path): Root directory for worker-local storage. Will be created if it does not exist.
         """
+        self.config = config
         self.http_client = http_client
         self.meta_data = meta_data
-        self.home_dir = home_dir
-        self.home_dir.mkdir(parents=True, exist_ok=True)
-        self.archive_path = self.home_dir / EXPERIMENT_ARCHIVE_NAME
+
+        self.config.home_directory.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def experiment_archive_path(self) -> Path:
+        """Path to the Experiment's archive."""
+        return self.config.home_directory / EXPERIMENT_ARCHIVE_NAME
+
+    @property
+    def results_archive_path(self) -> Path:
+        """Path ro the Run's results archive."""
+        return self.config.home_directory / RESULTS_ARCHIVE_NAME
 
     @staticmethod
     async def register(
@@ -168,13 +176,11 @@ class Worker:
             meta_data_path.is_file
         ):  # no saved registration data available -> register new worker
             meta_data = await Worker.register(
-                client=client, registration_data=config.get_registration_data()
+                client=client, registration_data=config.registration_data
             )
             with meta_data_path.open("w") as f:
                 await to_thread(f.write, meta_data.model_dump_json())
-            return cls(
-                http_client=client, meta_data=meta_data, home_dir=config.home_directory
-            )
+            return cls(http_client=client, meta_data=meta_data, config=config)
 
         with meta_data_path.open("rb") as f:
             data = await to_thread(f.read)
@@ -191,9 +197,7 @@ class Worker:
             with meta_data_path.open("w") as f:
                 await to_thread(f.write, meta_data.model_dump_json())
 
-        return cls(
-            http_client=client, meta_data=meta_data, home_dir=config.home_directory
-        )
+        return cls(http_client=client, meta_data=meta_data, config=config)
 
     async def executor_loop(self) -> None:
         """Poll the server for work and execute runs.
@@ -250,8 +254,8 @@ class Worker:
                 case WorkerBackend.NATIVE:
                     backend = NativeBackend(
                         run=run,
-                        archive_path=self.archive_path,
-                        home_dir=self.home_dir,
+                        experiment_archive_path=self.experiment_archive_path,
+                        results_archive_path=self.results_archive_path,
                         execution_dir=execution_dir,
                     )
 
@@ -355,7 +359,7 @@ class Worker:
                 logger.debug("Archive validated successfully, saving it for execution")
 
                 try:
-                    await to_thread(copy, archive_path, self.archive_path)
+                    await to_thread(copy, archive_path, self.experiment_archive_path)
                 except OSError as err:
                     logger.exception("Failed copying archive")
                     raise RunFailureError(run=run, reason=err) from err
@@ -401,9 +405,8 @@ class Worker:
         Raises:
             HTTPStatusError: If the server returns a non-2xx response.
         """
-        archive_path = self.home_dir / RESULTS_ARCHIVE_NAME
         logger.info("Uploading results for run %s", run.run_id)
-        with archive_path.open("rb") as f:
+        with self.results_archive_path.open("rb") as f:
             response = await self.http_client.post(
                 "/runs/result",
                 params={"wid": self.meta_data.wid},
