@@ -8,8 +8,15 @@ from shutil import unpack_archive
 from docker import DockerClient
 from docker.models.containers import Container
 from docker.models.images import Image
+from requests.exceptions import ReadTimeout
 
-from mprun.errors import RunFailureError, RunNotExecutedError, RunNotPreparedError
+from mprun.errors import (
+    ExecutableReturnError,
+    RunFailureError,
+    RunNotExecutedError,
+    RunNotPreparedError,
+    RunTimeoutError,
+)
 from mprun.models import Run
 from mprun.worker.config import DockerBackendConfig
 
@@ -107,13 +114,45 @@ class DockerBackend:
     async def execute_run(self) -> None:
         """Execute run.
 
+        Runs the main executable inside the container.
+
         Raises:
             RunFailure: If the executable does not finish within its timeout / if it returns a code != 0.
         """
         if self._run_image is None:
             raise RunNotPreparedError
 
-        # TODO: run experiment inside container
+        container: Container = self.docker_client.containers.run(
+            image=self._run_image.id,
+            command=[self.run.definition.executable, *self.run.assemble_args()],
+            volumes={str(self.execution_dir): {"bind": "/workspace", "mode": "rw"}},
+            working_dir="/workspace",
+            detach=True,
+            auto_remove=False,
+        )
+
+        if self.run.definition.timeout:
+            try:
+                response = await to_thread(
+                    container.wait, timeout=self.run.definition.timeout
+                )
+            except ReadTimeout as err:
+                logger.exception("Run %s exceeded timeout", self.run.run_id)
+                await to_thread(container.kill)
+                raise RunFailureError(
+                    run=self.run,
+                    reason=RunTimeoutError(seconds=self.run.definition.timeout),
+                ) from err
+        else:
+            response = await to_thread(container.wait)
+
+        if response["StatusCode"] != 0:
+            raise RunFailureError(
+                run=self.run,
+                reason=ExecutableReturnError(
+                    name=self.run.definition.executable, code=response["StatusCode"]
+                ),
+            )
 
     async def collect_results(self) -> None:
         """Package run outputs and result files into a ZIP archive."""
