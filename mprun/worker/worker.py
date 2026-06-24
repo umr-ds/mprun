@@ -319,6 +319,7 @@ class Worker:
             case WorkerBackend.DOCKER:
                 return DockerBackend(
                     config=self.config.docker_backend,
+                    run=run,
                     experiment_archive_path=self.experiment_archive_path,
                     results_archive_path=self.results_archive_path,
                     execution_dir=execution_dir,
