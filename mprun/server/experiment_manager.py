@@ -24,6 +24,7 @@ from mprun.models import (
     Experiment,
     ExperimentDefinition,
     Run,
+    WorkerData,
 )
 
 logger = logging.getLogger(__name__)
@@ -257,13 +258,17 @@ class ExperimentManager:
                 raise NoSuchRunError(run_id=rid)
             return experiment.runs[rid.index][rid.iteration]
 
-    async def dispatch_waiting_run(self) -> PendingDispatch | None:
+    async def dispatch_waiting_run(self, worker: WorkerData) -> PendingDispatch | None:
         """Claim a waiting run for dispatch.
 
-        Finds the first run with ``WAITING`` state that is not already being dispatched, marks
-        it as pending, and returns a ``PendingDispatch`` context manager. The caller must
-        call ``finalise`` on it and let the context manager exit to commit the
-        dispatch; any exception (or not calling ``finalise``) causes an automatic cancel.
+        Finds the first run with ``WAITING`` state that is not already being dispatched and matches the worker's declared backends.
+        Marks run as pending, and returns a ``PendingDispatch`` context manager.
+        The caller must call ``finalise`` on it and let the context manager exit to commit the
+        dispatch.
+        Any exception (or not calling ``finalise``) causes an automatic cancel.
+
+        Args:
+            worker (WorkerData): Metadata of the worker that is requesting a run.
 
         Returns:
             PendingDispatch | None: A pending dispatch for the claimed run, or ``None`` if no
@@ -279,6 +284,7 @@ class ExperimentManager:
                     run
                     for run in experiment.waiting_runs
                     if run.run_id not in self._pending_dispatches
+                    and run.definition.backends & worker.registration_data.backends
                 ]
                 if not runs:
                     continue

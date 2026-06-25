@@ -228,7 +228,8 @@ async def dispatch_run(
     ``X-Run`` response header. Returns ``404`` if the worker ID is not registered.
     """
     try:
-        pending = await em.dispatch_waiting_run()
+        worker = await wm.get(wid=wid)
+        pending = await em.dispatch_waiting_run(worker=worker)
         if pending is None:
             return Response(status_code=HTTPStatus.NO_CONTENT)
 

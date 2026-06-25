@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mprun.custom_types import ActiveState, RunId, SuccessState
+from mprun.custom_types import ActiveState, RunId, SuccessState, WorkerBackend
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -16,8 +16,26 @@ from mprun.models import (
     Experiment,
     ExperimentDefinition,
     Run,
+    WorkerData,
+    WorkerRegistration,
+    WorkerState,
 )
 from mprun.server.experiment_manager import ExperimentManager, PendingDispatch
+
+
+def _make_worker(
+    name: str = "testworker", wid: int = 0, backends: set[WorkerBackend] | None = None
+) -> WorkerData:
+    """Create a minimal WorkerData for dispatch tests."""
+    return WorkerData(
+        registration_data=WorkerRegistration(
+            name=name, backends=backends or {WorkerBackend.NATIVE}
+        ),
+        wid=wid,
+        state=WorkerState.IDLE,
+        joined=time.time(),
+        last_check_in=time.time(),
+    )
 
 
 async def _create_experiment(
@@ -77,7 +95,7 @@ async def test_dispatch(
     """Dispatching a waiting run transitions the experiment to RUNNING."""
     manager = ExperimentManager(data_path=tmp_path / "data")
 
-    assert await manager.dispatch_waiting_run() is None
+    assert await manager.dispatch_waiting_run(worker=_make_worker()) is None
 
     definition, directory = make_experiment()
     experiment = await _create_experiment(manager, definition, directory)
@@ -85,7 +103,7 @@ async def test_dispatch(
     retrieved = await manager.get_experiment(eid=experiment.eid)
     assert retrieved.active_state == ActiveState.WAITING
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert isinstance(dispatched, PendingDispatch)
     assert dispatched.experiment.eid == experiment.eid
 
@@ -110,7 +128,7 @@ async def test_results_submit(
     definition, directory = make_experiment()
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -138,7 +156,7 @@ async def test_record_run_failure(
     definition, directory = make_experiment()
     await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -196,12 +214,12 @@ async def test_dispatch_exhausts(
     experiment = await _create_experiment(manager, definition, directory)
 
     for _ in range(len(experiment.runs)):
-        dispatched = await manager.dispatch_waiting_run()
+        dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
         assert dispatched is not None
         async with dispatched:
             dispatched.finalise(wid=0)
 
-    assert await manager.dispatch_waiting_run() is None
+    assert await manager.dispatch_waiting_run(worker=_make_worker()) is None
 
 
 @pytest.mark.asyncio
@@ -218,16 +236,16 @@ async def test_pending_dispatch_blocks_redispatch_until_cancel(
     definition, directory = make_experiment(params={"x": [1]})  # single run
     await _create_experiment(manager, definition, directory)
 
-    first = await manager.dispatch_waiting_run()
+    first = await manager.dispatch_waiting_run(worker=_make_worker())
     assert first is not None
 
-    second = await manager.dispatch_waiting_run()
+    second = await manager.dispatch_waiting_run(worker=_make_worker())
     assert second is None  # blocked by the still-pending first dispatch
 
     async with first:
         pass  # no finalise → cancel
 
-    third = await manager.dispatch_waiting_run()
+    third = await manager.dispatch_waiting_run(worker=_make_worker())
     assert third is not None
     assert third.run.run_id == first.run.run_id
 
@@ -243,7 +261,7 @@ async def test_submitting_all_results_finishes_experiment(
     experiment = await _create_experiment(manager, definition, directory)
 
     for _ in range(len(experiment.runs)):
-        dispatched = await manager.dispatch_waiting_run()
+        dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
         assert dispatched is not None
         async with dispatched:
             dispatched.finalise(wid=0)
@@ -309,7 +327,7 @@ async def test_delete_removes_results_archives(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -335,7 +353,7 @@ async def test_delete_cancels_pending_dispatches(
     definition, directory = make_experiment(params={"x": [1]})
     await _create_experiment(manager, definition, directory)
 
-    pending = await manager.dispatch_waiting_run()
+    pending = await manager.dispatch_waiting_run(worker=_make_worker())
     assert pending is not None
     assert pending.run.run_id in manager._pending_dispatches
 
@@ -358,7 +376,7 @@ async def test_delete_finished_experiment(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -422,7 +440,7 @@ async def test_reset_run(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -459,7 +477,7 @@ async def test_reset_run_evicted_experiment(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=0)
@@ -511,7 +529,7 @@ async def test_reset_run_clears_pending_dispatch(
     definition, directory = make_experiment(params={"x": [1]})
     await _create_experiment(manager, definition, directory)
 
-    pending = await manager.dispatch_waiting_run()
+    pending = await manager.dispatch_waiting_run(worker=_make_worker())
     assert pending is not None
     assert pending.run.run_id in manager._pending_dispatches
 
@@ -530,7 +548,7 @@ async def test_dead_worker_callback_resets_running_run(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=7)
@@ -555,7 +573,7 @@ async def test_dead_worker_callback_noop_wrong_wid(
     definition, directory = make_experiment(params={"x": [1]})
     experiment = await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=7)
@@ -596,7 +614,7 @@ async def test_dead_worker_callback_resets_multiple_runs(
     experiment = await _create_experiment(manager, definition, directory)
 
     for _ in range(3):
-        dispatched = await manager.dispatch_waiting_run()
+        dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
         assert dispatched is not None
         async with dispatched:
             dispatched.finalise(wid=7)
@@ -628,12 +646,12 @@ async def test_dead_worker_callback_only_resets_dead_worker(
     exp1 = await _create_experiment(manager, def1, dir1)
     exp2 = await _create_experiment(manager, def2, dir2)
 
-    d1 = await manager.dispatch_waiting_run()
+    d1 = await manager.dispatch_waiting_run(worker=_make_worker())
     assert d1 is not None
     async with d1:
         d1.finalise(wid=1)
 
-    d2 = await manager.dispatch_waiting_run()
+    d2 = await manager.dispatch_waiting_run(worker=_make_worker())
     assert d2 is not None
     async with d2:
         d2.finalise(wid=2)
@@ -661,7 +679,7 @@ async def test_dead_worker_callback_persists_reset(
     definition, directory = make_experiment(params={"x": [1]})
     await _create_experiment(manager, definition, directory)
 
-    dispatched = await manager.dispatch_waiting_run()
+    dispatched = await manager.dispatch_waiting_run(worker=_make_worker())
     assert dispatched is not None
     async with dispatched:
         dispatched.finalise(wid=7)
