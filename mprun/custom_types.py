@@ -94,7 +94,13 @@ class AppPaths(NamedTuple):
 
 
 class WorkerBackend(StrEnum):
-    """Possible worker backends."""
+    """Possible worker backends.
+
+    If used in an ``ExperimentDefinition`` this determines which kind of worker the experiment's runs are to be executed on.
+
+    If used in a Worker's config, this determines, which backends the worker has access to.
+    Only Runs with matching requirements will be dispatched to the worker.
+    """
 
     NATIVE = "NATIVE"
     DOCKER = "DOCKER"

@@ -8,7 +8,7 @@ from zipfile import ZIP_LZMA, ZipFile
 
 import pytest
 
-from mprun.custom_types import ActiveState, SuccessState
+from mprun.custom_types import ActiveState, SuccessState, WorkerBackend
 from mprun.errors import ArchiveValidationError
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
@@ -28,6 +28,7 @@ def test_experiment_creation() -> None:
         name="exp",
         params={"foo": [1, 2, 3], "bar": ["a", "b", "c"], "buzz": [True, False]},
         executable="exe",
+        backends={WorkerBackend.NATIVE},
         results={},
     )
     experiment = Experiment.new(definition)
@@ -183,7 +184,11 @@ def test_archive_missing_hash_key(
 def test_run_reset() -> None:
     """Run.reset() clears wid, timestamps, failure_reason and reverts to WAITING/PENDING."""
     definition = ExperimentDefinition(
-        name="test", params={"x": [1]}, executable="main.py", results={}
+        name="test",
+        params={"x": [1]},
+        executable="main.py",
+        backends={WorkerBackend.NATIVE},
+        results={},
     )
     run = Run(
         definition=definition,

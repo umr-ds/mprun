@@ -9,7 +9,7 @@ from zipfile import ZIP_LZMA, ZipFile
 
 import pytest
 
-from mprun.custom_types import TOMLScalar
+from mprun.custom_types import TOMLScalar, WorkerBackend
 from mprun.models import (
     EXPERIMENT_DEFINITION_NAME,
     ExperimentDefinition,
@@ -43,6 +43,7 @@ TEST_EXPERIMENT = ExperimentDefinition(
         "bar": ["one", "two", "three"],
         "buzz": [True, False],
     },
+    backends={WorkerBackend.NATIVE},
     executable="main_script.py",
     setup_executable="setup_script.py",
     results={
@@ -153,6 +154,7 @@ def build_experiment(  # noqa: PLR0913
     definition = ExperimentDefinition(
         name=name,
         params=params if params is not None else {"x": [1, 2]},
+        backends={WorkerBackend.NATIVE},
         executable=executable,
         setup_executable=setup_name,
         results=results if results is not None else {"out.txt": "out.txt"},

@@ -208,6 +208,7 @@ The TOML file must live in the same directory as the `executable` (and `setup_ex
 ```toml
 name = "my experiment"
 executable = "run.sh"
+backends = ["NATIVE"]
 
 [params]
 learning_rate = [0.001, 0.01, 0.1]
@@ -227,6 +228,7 @@ executable  = "train.py"
 setup_executable = "setup.sh"   # optional: run once before each main run
 iterations  = 3                 # repeat each param combo 3 times
 timeout     = 3600              # seconds; omit for no timeout
+backends    = ["NATIVE", "DOCKER"]
 
 [params]
 learning_rate = [0.001, 0.01]
@@ -257,6 +259,7 @@ Total runs = `product(len(values) for each param) × iterations` = 2 × 2 × 1 �
 | `name`                  |   yes    | Human-readable label. Need not be unique — each experiment gets its own UUID.                                                                         |
 | `executable`            |   yes    | Filename of the main script/binary. Must exist in the same directory as the TOML and be marked executable.                                            |
 | `params`                |   yes    | Dict of `param_name = [value, …]`. Values can be `str`, `int`, `float`, or `bool`. Runs = Cartesian product of all lists.                             |
+| `backends`              |   yes    | List of worker backends this experiment may run on. One or more of `"NATIVE"`, `"DOCKER"`.                                                             |
 | `results`               |   yes    | Dict of `"worker_path" = "archive_name"`. Paths/directories collected from the worker after each run and stored in the result archive.                |
 | `iterations`            |    no    | How many times each parameter combination is run. Default `1`. Use `>1` for non-deterministic experiments.                                            |
 | `timeout`               |    no    | Per-run timeout in seconds. Omit (or set to nothing) for unlimited.                                                                                   |

@@ -15,7 +15,7 @@ from tempfile import TemporaryDirectory
 
 from hypothesis import given
 
-from mprun.custom_types import ActiveState, SuccessState, TOMLScalar
+from mprun.custom_types import ActiveState, SuccessState, TOMLScalar, WorkerBackend
 from mprun.models import (
     EXPERIMENT_DEFINITION_NAME,
     Experiment,
@@ -46,6 +46,7 @@ def test_experiment_new_run_count(params: dict[str, list[TOMLScalar]]) -> None:
         name="exp",
         params=params,
         executable="exe",
+        backends={WorkerBackend.NATIVE},
         results={},
     )
     experiment = Experiment.new(definition)
@@ -87,6 +88,7 @@ def test_recalculate_state(states: list[tuple[ActiveState, SuccessState]]) -> No
         name="exp",
         params={"x": [1]},
         executable="exe",
+        backends={WorkerBackend.NATIVE},
         results={},
     )
     experiment = Experiment.new(definition)

@@ -2,7 +2,7 @@
 
 from hypothesis import strategies as st
 
-from mprun.custom_types import ActiveState, SuccessState, TOMLScalar
+from mprun.custom_types import ActiveState, SuccessState, TOMLScalar, WorkerBackend
 from mprun.models import ExperimentDefinition
 
 identifier = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]*", fullmatch=True)
@@ -48,6 +48,7 @@ def experiment_definition(draw: st.DrawFn) -> ExperimentDefinition:
         name=draw(identifier),
         params=draw(params()),
         executable=draw(identifier),
+        backends=draw(st.sets(elements=st.sampled_from(WorkerBackend), min_size=1)),
         setup_executable=draw(st.one_of(st.none(), identifier)),
         results=draw(st.dictionaries(identifier, safe_str_value, max_size=3)),
         environment_variables=draw(

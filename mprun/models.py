@@ -14,7 +14,7 @@ from uuid import uuid4
 from zipfile import ZIP_LZMA, ZipFile
 
 import pytimeparse2
-from pydantic import BaseModel, ValidationInfo, field_validator
+from pydantic import BaseModel, ValidationInfo, field_serializer, field_validator
 from tomlkit import dump, load
 
 from mprun.custom_types import (
@@ -146,6 +146,7 @@ class ExperimentDefinition(BaseModel):
             Defaults to 1.
         executable (str): Name of the experiment's main executable. When loading from TOML, the
             file must exist in the same directory as the TOML definition.
+        backends (set[WorkerBackend]): What worker backends this experiment may be executed on.
         results (dict[str, str]): Files or directories to save after each run. Keys are paths
             on the worker's filesystem; values are the names they will have inside the results
             archive.
@@ -165,6 +166,7 @@ class ExperimentDefinition(BaseModel):
     params: dict[str, list[TOMLScalar]]
     iterations: int = 1
     executable: str
+    backends: set[WorkerBackend]
     results: dict[str, str]
     timeout: int | None = None
     setup_executable: str | None = None
@@ -203,9 +205,18 @@ class ExperimentDefinition(BaseModel):
         with file_path.open("r") as f:
             data = load(f).unwrap()
 
+            if "backends" in data:
+                data["backends"] = {WorkerBackend(b) for b in data["backends"]}
+
             if validation_mode == ValidationMode.DATA_ONLY:
                 return cls.model_validate(data, strict=True)
             return cls.model_validate(data, strict=True, context=file_path.parent)
+
+    @field_serializer("backends")
+    @classmethod
+    def serialise_backends(cls, value: set[WorkerBackend]) -> list[str]:
+        """Serialise the backends set as a sorted list of strings."""
+        return sorted(b.value for b in value)
 
     @field_validator("executable", mode="after")
     @classmethod
@@ -403,33 +414,45 @@ class ExperimentDefinition(BaseModel):
             compression=ZIP_LZMA,
             allowZip64=True,
         ) as zf:
+            # add ExperimentDefinition itself
             add_path_to_archive(
                 zf=zf,
                 hashes=file_hashes,
                 name_local=experiment_toml,
                 name_archive=EXPERIMENT_DEFINITION_NAME,
-            )  # add ExperimentDefinition itself
+            )
+            # add main executable
             add_path_to_archive(
                 zf=zf,
                 hashes=file_hashes,
                 name_local=directory / self.executable,
                 name_archive=self.executable,
-            )  # add main executable
+            )
             if self.setup_executable:
+                # add setup executable (if one is specified)
                 add_path_to_archive(
                     zf=zf,
                     hashes=file_hashes,
                     name_local=directory / self.setup_executable,
                     name_archive=self.setup_executable,
-                )  # add setup executable (if one is specified)
+                )
             if self.environment_files:
+                # add environment files/directories (if any are specified)
                 for environment_file in self.environment_files:
                     add_path_to_archive(
                         zf=zf,
                         hashes=file_hashes,
                         name_local=directory / environment_file,
                         name_archive=environment_file,
-                    )  # add environment files/directories (if any are specified)
+                    )
+            if WorkerBackend.DOCKER in self.backends:
+                # add dockerfile
+                add_path_to_archive(
+                    zf=zf,
+                    hashes=file_hashes,
+                    name_local=directory / "Dockerfile",
+                    name_archive="Dockerfile",
+                )
             zf.writestr(
                 zinfo_or_arcname=EXPERIMENT_MANIFEST_NAME, data=json.dumps(file_hashes)
             )
@@ -486,7 +509,16 @@ class ExperimentDefinition(BaseModel):
                     file_hash=file_hashes[self.setup_executable],
                 )
 
-            self._validate_env_files(zf, contents, file_hashes)
+            self._validate_env_files(zf=zf, contents=contents, file_hashes=file_hashes)
+
+            # validate Dockerfile
+            if WorkerBackend.DOCKER in self.backends:
+                if "Dockerfile" not in contents:
+                    msg = "Archive does not contain Dockerfile"
+                    raise ArchiveValidationError(reason=msg)
+                validate_file_hash(
+                    zf=zf, name="Dockerfile", file_hash=file_hashes["Dockerfile"]
+                )
 
     def _validate_env_files(
         self,
