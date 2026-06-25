@@ -11,7 +11,7 @@ from zipfile import ZIP_LZMA, ZipFile
 from docker import DockerClient
 from docker.models.containers import Container
 from docker.models.images import Image
-from requests.exceptions import ReadTimeout
+from requests import exceptions as requests_exceptions
 
 from mprun.errors import (
     ExecutableReturnError,
@@ -101,13 +101,22 @@ class DockerBackend:
             format="zip",
         )
 
+        # Set execute permissions for the main executable (volume-mounted)
+        main_script = self.execution_dir / self.run.definition.executable
+        await asyncio.to_thread(main_script.chmod, main_script.stat().st_mode | 0o111)
+
         try:
             image, build_logs = await asyncio.to_thread(
                 self.docker_client.images.build, path=str(self.execution_dir), pull=True
             )
             self._run_image = image
+            log_bytes: list[bytes] = []
+            for chunk in build_logs:
+                if isinstance(chunk, dict) and "stream" in chunk:
+                    log_bytes.append(chunk["stream"].encode())
             with (self.execution_dir / DOCKER_BUILD_LOGS).open("wb") as f:
-                f.write(build_logs)
+                for entry in log_bytes:
+                    f.write(entry)
         except Exception as err:
             logger.exception("Run %s failed to build", self.run.run_id)
             raise RunFailureError(run=self.run, reason=err) from err
@@ -127,7 +136,11 @@ class DockerBackend:
 
         container: Container = self.docker_client.containers.run(
             image=self._run_image.id,
-            command=[self.run.definition.executable, *self.run.assemble_args()],
+            command=[
+                f"./{self.run.definition.executable}",
+                *self.run.assemble_args(),
+            ],
+            environment=self.run.definition.environment_variables,
             volumes={str(self.execution_dir): {"bind": "/workspace", "mode": "rw"}},
             working_dir="/workspace",
             detach=True,
@@ -141,7 +154,10 @@ class DockerBackend:
                 response = await asyncio.to_thread(
                     container.wait, timeout=self.run.definition.timeout
                 )
-            except ReadTimeout as err:
+            except (
+                requests_exceptions.ReadTimeout,
+                requests_exceptions.ConnectionError,
+            ) as err:
                 logger.warning("Run %s exceeded timeout", self.run.run_id)
                 await asyncio.to_thread(container.kill)
                 raise RunFailureError(
@@ -198,24 +214,28 @@ class DockerBackend:
                 for lp, archive_path in self.run.definition.results.items():
                     local_path = Path(lp)
 
-                    if local_path.is_absolute():
-                        # copy files/folders from outside the mounted working directory
-                        bits, _stat = await asyncio.to_thread(
-                            self._run_container.get_archive, str(local_path)
-                        )
-                        tar_bytes = b"".join(bits)
-                        with tarfile.open(fileobj=BytesIO(tar_bytes)) as tar:
-                            await asyncio.to_thread(
-                                tar.extractall, path=str(self.execution_dir)
-                            )
-                        local_path = self.execution_dir / local_path.name
-                    else:
-                        local_path = self.execution_dir / local_path
+                    # Always use get_archive to copy from inside the container.
+                    # Relative paths are relative to /workspace (the working dir).
+                    container_path = (
+                        str(local_path)
+                        if local_path.is_absolute()
+                        else f"/workspace/{lp}"
+                    )
+                    bits, _stat = await asyncio.to_thread(
+                        self._run_container.get_archive, container_path
+                    )
+                    tar_bytes = b"".join(bits)
+                    extract_dir = (
+                        self.execution_dir / f"__collect_{lp.replace('/', '_')}"
+                    )
+                    extract_dir.mkdir(parents=True, exist_ok=True)
+                    with tarfile.open(fileobj=BytesIO(tar_bytes)) as tar:
+                        await asyncio.to_thread(tar.extractall, path=str(extract_dir))
 
                     await asyncio.to_thread(
                         add_path_to_archive,
                         zf=zf,
-                        name_local=local_path,
+                        name_local=extract_dir / local_path.name,
                         name_archive=archive_path,
                     )
         except RunFailureError:
