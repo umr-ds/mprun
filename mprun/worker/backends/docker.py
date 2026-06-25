@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import tarfile
 from io import BytesIO
 from pathlib import Path
@@ -149,31 +150,50 @@ class DockerBackend:
 
         self._run_container = container
 
-        if self.run.definition.timeout:
-            try:
-                response = await asyncio.to_thread(
-                    container.wait, timeout=self.run.definition.timeout
-                )
-            except (
-                requests_exceptions.ReadTimeout,
-                requests_exceptions.ConnectionError,
-            ) as err:
-                logger.warning("Run %s exceeded timeout", self.run.run_id)
-                await asyncio.to_thread(container.kill)
+        try:
+            if self.run.definition.timeout:
+                try:
+                    response = await asyncio.to_thread(
+                        container.wait, timeout=self.run.definition.timeout
+                    )
+                except (
+                    requests_exceptions.ReadTimeout,
+                    requests_exceptions.ConnectionError,
+                ) as err:
+                    logger.warning("Run %s exceeded timeout", self.run.run_id)
+                    await asyncio.to_thread(container.kill)
+                    raise RunFailureError(
+                        run=self.run,
+                        reason=RunTimeoutError(seconds=self.run.definition.timeout),
+                    ) from err
+            else:
+                response = await asyncio.to_thread(container.wait)
+
+            if response["StatusCode"] != 0:
                 raise RunFailureError(
                     run=self.run,
-                    reason=RunTimeoutError(seconds=self.run.definition.timeout),
-                ) from err
-        else:
-            response = await asyncio.to_thread(container.wait)
+                    reason=ExecutableReturnError(
+                        name=self.run.definition.executable,
+                        code=response["StatusCode"],
+                    ),
+                )
+        finally:
+            # Chown root-owned files so the host process can clean them up.
+            # collect_results also performs this; doing it here handles the
+            # case where collect_results is never called (e.g. in tests).
+            await self._chown_workspace(container)
 
-        if response["StatusCode"] != 0:
-            raise RunFailureError(
-                run=self.run,
-                reason=ExecutableReturnError(
-                    name=self.run.definition.executable, code=response["StatusCode"]
-                ),
+    async def _chown_workspace(self, container: Container) -> None:
+        """Chown the workspace volume mount to the host user's UID/GID."""
+        try:
+            uid = os.getuid()
+            gid = os.getgid()
+            await asyncio.to_thread(
+                container.exec_run,
+                f"chown -R {uid}:{gid} /workspace",
             )
+        except Exception:
+            logger.exception("Failed to chown workspace in container")
 
     async def collect_results(self) -> None:
         """Package run outputs and result files into a ZIP archive.
@@ -243,4 +263,6 @@ class DockerBackend:
         except Exception as err:
             raise RunFailureError(run=self.run, reason=err) from err
         finally:
-            await asyncio.to_thread(self._run_container.remove)  # cleanup
+            if self._run_container is not None:
+                await self._chown_workspace(self._run_container)
+                await asyncio.to_thread(self._run_container.remove)
