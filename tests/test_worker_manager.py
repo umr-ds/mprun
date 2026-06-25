@@ -38,6 +38,7 @@ async def test_worker_register(name: str) -> None:
 
         assert worker.wid in manager._workers
         assert worker == manager._workers[worker.wid]
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -59,6 +60,7 @@ async def test_worker_checkin(name: str) -> None:
         await manager.check_in(worker.wid)
 
         assert worker.last_check_in > checkin_time
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -86,6 +88,7 @@ async def test_evict_dead_worker_from_memory(name: str) -> None:
 
             assert worker.wid not in manager._workers
             assert worker.state == WorkerState.DEAD
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -116,6 +119,7 @@ async def test_evicted_worker_persisted_as_dead(name: str) -> None:
             dead = [w for w in all_workers if w.wid == wid]
             assert len(dead) == 1
             assert dead[0].state == WorkerState.DEAD
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -144,6 +148,7 @@ async def test_evicted_worker_raises_on_get(name: str) -> None:
 
             with pytest.raises(NoSuchWorkerError):
                 await manager.get(wid)
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -168,6 +173,7 @@ async def test_live_worker_not_evicted(name: str) -> None:
             await manager._collect_garbage()
 
             assert worker.wid in manager._workers
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -198,6 +204,7 @@ async def test_checkin_prevents_eviction(name: str) -> None:
             await manager._collect_garbage()
 
             assert worker.wid in manager._workers
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -229,6 +236,7 @@ async def test_only_stale_workers_evicted(name: str) -> None:
 
             assert live.wid in manager._workers
             assert dead.wid not in manager._workers
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -256,6 +264,7 @@ async def test_revive_returns_worker() -> None:
         assert revived.state == WorkerState.IDLE
         assert revived.registration_data.name == "testworker"
         assert revived.wid in manager._workers
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -269,6 +278,7 @@ async def test_revive_unknown_worker() -> None:
 
         with pytest.raises(NoSuchWorkerError):
             await manager.revive(wid=99999)
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -287,6 +297,7 @@ async def test_revive_alive_worker() -> None:
 
         with pytest.raises(WorkerNotDeadError):
             await manager.revive(wid=worker.wid)
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -316,6 +327,7 @@ async def test_purge_removes_dead_workers() -> None:
 
             all_workers = await manager.get_all()
             assert not any(w.wid == worker.wid for w in all_workers)
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -348,6 +360,7 @@ async def test_purge_does_not_affect_alive_workers() -> None:
             all_workers = await manager.get_all()
             assert any(w.wid == alive.wid for w in all_workers)
             assert not any(w.wid == dead.wid for w in all_workers)
+        manager.close()
 
 
 @pytest.mark.asyncio
@@ -369,3 +382,4 @@ async def test_purge_empty_noop() -> None:
         all_workers = await manager.get_all()
         assert len(all_workers) == 1
         assert all_workers[0].wid == worker.wid
+        manager.close()

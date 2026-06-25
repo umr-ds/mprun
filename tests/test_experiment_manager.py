@@ -85,6 +85,7 @@ async def test_create(
     stored_archive = manager._data_path / str(experiment.eid) / EXPERIMENT_ARCHIVE_NAME
     assert stored_archive.is_file()
     experiment.definition.validate_archive(archive_path=stored_archive)
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -116,6 +117,7 @@ async def test_dispatch(
     retrieved_run = retrieved.runs[dispatched.run.index][dispatched.run.iteration]
     assert retrieved_run.run_id == dispatched.run.run_id
     assert retrieved_run.active_state == ActiveState.RUNNING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -144,6 +146,7 @@ async def test_results_submit(
     assert submitted_run.active_state == ActiveState.FINISHED
     assert submitted_run.success_state == SuccessState.SUCCESS
     assert retrieved.active_state == ActiveState.RUNNING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -177,6 +180,7 @@ async def test_record_run_failure(
     assert submitted_run.success_state == SuccessState.FAILED
     assert submitted_run.failure_reason == "BAD_ARCHIVE"
     assert retrieved.success_state == SuccessState.FAILED
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -185,6 +189,7 @@ async def test_get_experiment_missing_raises(tmp_path: Path) -> None:
     manager = ExperimentManager(data_path=tmp_path / "data")
     with pytest.raises(NoSuchExperimentError):
         await manager.get_experiment(eid=12345)
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -201,6 +206,7 @@ async def test_get_run_missing_raises(
         await manager.get_run(rid=RunId(eid=experiment.eid, index=999, iteration=0))
     with pytest.raises(NoSuchRunError):
         await manager.get_run(rid=RunId(eid=99999, index=0, iteration=0))
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -220,6 +226,7 @@ async def test_dispatch_exhausts(
             dispatched.finalise(wid=0)
 
     assert await manager.dispatch_waiting_run(worker=_make_worker()) is None
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -248,6 +255,7 @@ async def test_pending_dispatch_blocks_redispatch_until_cancel(
     third = await manager.dispatch_waiting_run(worker=_make_worker())
     assert third is not None
     assert third.run.run_id == first.run.run_id
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -270,6 +278,7 @@ async def test_submitting_all_results_finishes_experiment(
     retrieved = await manager.get_experiment(eid=experiment.eid)
     assert retrieved.active_state == ActiveState.FINISHED
     assert retrieved.success_state == SuccessState.SUCCESS
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -284,6 +293,7 @@ async def test_get_run_results_missing_raises(
 
     with pytest.raises(FileNotFoundError):
         await manager.get_run_results(rid=experiment.runs[0][0].run_id)
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -307,6 +317,7 @@ async def test_delete_removes_experiment(
 
     with pytest.raises(NoSuchExperimentError):
         await manager.get_experiment(eid=experiment.eid)
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -315,6 +326,7 @@ async def test_delete_missing_raises(tmp_path: Path) -> None:
     manager = ExperimentManager(data_path=tmp_path / "data")
     with pytest.raises(NoSuchExperimentError):
         await manager.delete(eid=99999)
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -341,6 +353,7 @@ async def test_delete_removes_results_archives(
 
     assert not data_dir.exists()
     assert not result_path.exists()
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -364,6 +377,7 @@ async def test_delete_cancels_pending_dispatches(
     # context exit should not raise even though the experiment is gone
     async with pending:
         pass  # no finalise → cancel, which is now a no-op discard
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -388,6 +402,7 @@ async def test_delete_finished_experiment(
     await manager.delete(eid=experiment.eid)
 
     assert await manager.get_all() == []
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -408,6 +423,7 @@ async def test_delete_does_not_affect_other_experiments(
     assert len(remaining) == 1
     assert remaining[0].eid == exp_b.eid
     assert manager._experiment_path(eid=exp_b.eid).is_dir()
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -465,6 +481,7 @@ async def test_reset_run(
     parent = await manager.get_experiment(eid=experiment.eid)
     assert parent.active_state == ActiveState.WAITING
     assert parent.success_state == SuccessState.PENDING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -492,6 +509,7 @@ async def test_reset_run_evicted_experiment(
     assert rid in manager._runs
     retrieved = await manager.get_run(rid=rid)
     assert retrieved.active_state == ActiveState.WAITING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -506,6 +524,7 @@ async def test_reset_run_unknown_run(
 
     with pytest.raises(NoSuchRunError):
         await manager.reset_run(rid=RunId(eid=experiment.eid, index=999, iteration=999))
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -517,6 +536,7 @@ async def test_reset_run_unknown_experiment(
 
     with pytest.raises(NoSuchExperimentError):
         await manager.reset_run(rid=RunId(eid=99999, index=0, iteration=0))
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -536,6 +556,7 @@ async def test_reset_run_clears_pending_dispatch(
     await manager.reset_run(rid=pending.run.run_id)
 
     assert pending.run.run_id not in manager._pending_dispatches
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -561,6 +582,7 @@ async def test_dead_worker_callback_resets_running_run(
     assert run.active_state == ActiveState.WAITING
     assert run.wid is None
     assert experiment.active_state == ActiveState.WAITING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -584,6 +606,7 @@ async def test_dead_worker_callback_noop_wrong_wid(
     assert run.active_state == ActiveState.RUNNING
     assert run.wid == 7
     assert experiment.active_state == ActiveState.RUNNING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -601,6 +624,7 @@ async def test_dead_worker_callback_noop_no_running_runs(
     run = manager._runs[experiment.runs[0][0].run_id]
     assert run.active_state == ActiveState.WAITING
     assert experiment.active_state == ActiveState.WAITING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -631,6 +655,7 @@ async def test_dead_worker_callback_resets_multiple_runs(
         assert run.active_state == ActiveState.WAITING
         assert run.wid is None
     assert experiment.active_state == ActiveState.WAITING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -666,6 +691,7 @@ async def test_dead_worker_callback_only_resets_dead_worker(
     assert run2.wid == 2
     assert exp1.active_state == ActiveState.WAITING
     assert exp2.active_state == ActiveState.RUNNING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -733,6 +759,7 @@ async def test_dispatch_matches_docker_backend(
 
     retrieved = await manager.get_experiment(eid=experiment.eid)
     assert retrieved.active_state == ActiveState.RUNNING
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -751,6 +778,7 @@ async def test_dispatch_no_match_returns_none_native_vs_docker(
         worker=_make_worker(backends={WorkerBackend.NATIVE})
     )
     assert dispatched is None
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -768,6 +796,7 @@ async def test_dispatch_no_match_returns_none_docker_vs_native(
         worker=_make_worker(backends={WorkerBackend.DOCKER})
     )
     assert dispatched is None
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -798,3 +827,4 @@ async def test_dead_worker_callback_resets_docker_run(
     assert run.active_state == ActiveState.WAITING
     assert run.wid is None
     assert experiment.active_state == ActiveState.WAITING
+    manager.close()
