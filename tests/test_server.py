@@ -27,7 +27,7 @@ from mprun.models import (
     WorkerState,
 )
 from mprun.server.server import server
-from mprun.worker_manager import WORKER_TIMEOUT
+from mprun.server.worker_manager import WORKER_TIMEOUT
 from tests.conftest import TEST_SERVER_PORT, configure_server_for_test
 
 
@@ -182,7 +182,7 @@ class TestWorkers:
 
                 app = cast(Any, client.app)
                 wm = app.state.worker_manager
-                with patch("mprun.worker_manager.time") as mock_time:
+                with patch("mprun.server.worker_manager.time") as mock_time:
                     mock_time.return_value = worker.last_check_in + WORKER_TIMEOUT + 1
                     await wm._collect_garbage()
 
@@ -229,7 +229,7 @@ class TestWorkers:
 
                 app = cast(Any, client.app)
                 wm = app.state.worker_manager
-                with patch("mprun.worker_manager.time") as mock_time:
+                with patch("mprun.server.worker_manager.time") as mock_time:
                     mock_time.return_value = worker.last_check_in + WORKER_TIMEOUT + 1
                     await wm._collect_garbage()
 

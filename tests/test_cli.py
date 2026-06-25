@@ -28,7 +28,7 @@ from mprun.models import (
     WorkerRegistration,
 )
 from mprun.server.server import server
-from mprun.worker_manager import WORKER_TIMEOUT
+from mprun.server.worker_manager import WORKER_TIMEOUT
 from tests.conftest import configure_server_for_test
 
 runner = CliRunner()
@@ -266,7 +266,7 @@ def test_purge_workers(
         try:
 
             async def _gc() -> None:
-                with patch("mprun.worker_manager.time") as mock_time:
+                with patch("mprun.server.worker_manager.time") as mock_time:
                     mock_time.return_value = (
                         worker["last_check_in"] + WORKER_TIMEOUT + 1
                     )

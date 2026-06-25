@@ -50,7 +50,6 @@ from mprun.errors import (
     NoSuchWorkerError,
     WorkerNotDeadError,
 )
-from mprun.experiment_manager import ExperimentManager
 from mprun.log import configure_logging
 from mprun.models import (
     Experiment,
@@ -65,7 +64,8 @@ from mprun.server.config import (
     load_server_config,
     resolve_server_config_path,
 )
-from mprun.worker_manager import WorkerManager
+from mprun.server.experiment_manager import ExperimentManager
+from mprun.server.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
 

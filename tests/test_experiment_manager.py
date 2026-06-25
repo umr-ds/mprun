@@ -10,7 +10,6 @@ import pytest
 
 from mprun.custom_types import ActiveState, RunId, SuccessState
 from mprun.errors import NoSuchExperimentError, NoSuchRunError
-from mprun.experiment_manager import ExperimentManager, PendingDispatch
 from mprun.models import (
     EXPERIMENT_ARCHIVE_NAME,
     EXPERIMENT_DEFINITION_NAME,
@@ -18,6 +17,7 @@ from mprun.models import (
     ExperimentDefinition,
     Run,
 )
+from mprun.server.experiment_manager import ExperimentManager, PendingDispatch
 
 
 async def _create_experiment(

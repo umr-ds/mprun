@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 from mprun.custom_types import WorkerBackend
 from mprun.errors import NoSuchWorkerError, WorkerNotDeadError
 from mprun.models import WorkerData, WorkerRegistration, WorkerState
-from mprun.worker_manager import WORKER_TIMEOUT, WorkerManager
+from mprun.server.worker_manager import WORKER_TIMEOUT, WorkerManager
 
 
 async def dummy_callback(wid: int) -> None:
@@ -74,7 +74,7 @@ async def test_evict_dead_worker_from_memory(name: str) -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=name, backends={WorkerBackend.NATIVE}
@@ -101,7 +101,7 @@ async def test_evicted_worker_persisted_as_dead(name: str) -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=name, backends={WorkerBackend.NATIVE}
@@ -131,7 +131,7 @@ async def test_evicted_worker_raises_on_get(name: str) -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=name, backends={WorkerBackend.NATIVE}
@@ -158,7 +158,7 @@ async def test_live_worker_not_evicted(name: str) -> None:
 
         now = 1000.0
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=name, backends={WorkerBackend.NATIVE}
@@ -183,7 +183,7 @@ async def test_checkin_prevents_eviction(name: str) -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=name, backends={WorkerBackend.NATIVE}
@@ -213,7 +213,7 @@ async def test_only_stale_workers_evicted(name: str) -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name=f"{name}-live", backends={WorkerBackend.NATIVE}
@@ -245,7 +245,7 @@ async def test_revive_returns_worker() -> None:
         )
         worker = await manager.register(registration_data=worker_registration)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             now = 1000.0
             mock_time.return_value = now
             worker.last_check_in = now - (WORKER_TIMEOUT + 1)
@@ -301,7 +301,7 @@ async def test_purge_removes_dead_workers() -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name="doomed", backends={WorkerBackend.NATIVE}
@@ -330,7 +330,7 @@ async def test_purge_does_not_affect_alive_workers() -> None:
         now = 1000.0
         stale = now - (WORKER_TIMEOUT + 1)
 
-        with patch("mprun.worker_manager.time") as mock_time:
+        with patch("mprun.server.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
                 name="alive", backends={WorkerBackend.NATIVE}
