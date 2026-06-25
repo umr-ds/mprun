@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, override
 
-from mprun.custom_types import RunId
+from mprun.custom_types import RunId, WorkerBackend
 
 if TYPE_CHECKING:
     from mprun.models import Run
@@ -206,3 +206,18 @@ class RunNotPreparedError(Exception):
 
 class RunNotExecutedError(Exception):
     """Raised by the worker's execution backend if you try to collect results before executing the run."""
+
+
+@dataclass(frozen=True)
+class NoMatchingBackendError(Exception):
+    """Raised if the Worker's and Experiment's available backends do not overlap."""
+
+    worker: set[WorkerBackend]
+    experiment: set[WorkerBackend]
+
+    @override
+    def __str__(self) -> str:
+        """Error's string representation."""
+        return (
+            f"Workers backends: {self.worker}, Experiments backends: {self.experiment}"
+        )

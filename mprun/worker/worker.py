@@ -31,6 +31,7 @@ from mprun.endpoints import (
 from mprun.errors import (
     ArchiveValidationError,
     InconsistentConfigurationError,
+    NoMatchingBackendError,
     RunFailureError,
 )
 from mprun.log import configure_logging
@@ -41,11 +42,7 @@ from mprun.models import (
     WorkerRegistration,
 )
 from mprun.worker.backends import Backend, DockerBackend, NativeBackend
-from mprun.worker.config import (
-    WorkerConfig,
-    load_worker_config,
-    resolve_worker_config_path,
-)
+from mprun.worker.config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 cli = Typer()
@@ -309,22 +306,34 @@ class Worker:
                 logger.exception("Unexpected error uploading results")
 
     def _select_backend(self, run: Run, execution_dir: Path) -> Backend:
-        match self.meta_data.registration_data.backend:
-            case WorkerBackend.NATIVE:
-                return NativeBackend(
-                    run=run,
-                    experiment_archive_path=self.experiment_archive_path,
-                    results_archive_path=self.results_archive_path,
-                    execution_dir=execution_dir,
-                )
-            case WorkerBackend.DOCKER:
-                return DockerBackend(
-                    config=self.config.docker_backend,
-                    run=run,
-                    experiment_archive_path=self.experiment_archive_path,
-                    results_archive_path=self.results_archive_path,
-                    execution_dir=execution_dir,
-                )
+        """Select the most appropriate execution backend.
+
+        Gives priority to the docker backend.
+
+        Raises:
+            NoMatchingBackendError: If the worker's and experiment's set of backends backends do not overlap.
+        """
+        overlap = self.config.backends & run.definition.backends
+
+        if WorkerBackend.DOCKER in overlap:
+            return DockerBackend(
+                config=self.config.docker_backend,
+                run=run,
+                experiment_archive_path=self.experiment_archive_path,
+                results_archive_path=self.results_archive_path,
+                execution_dir=execution_dir,
+            )
+        if WorkerBackend.NATIVE in overlap:
+            return NativeBackend(
+                run=run,
+                experiment_archive_path=self.experiment_archive_path,
+                results_archive_path=self.results_archive_path,
+                execution_dir=execution_dir,
+            )
+
+        raise NoMatchingBackendError(
+            worker=self.config.backends, experiment=run.definition.backends
+        )
 
     async def get_work(self) -> Run | None:
         """Query the server for a waiting run.
@@ -493,7 +502,7 @@ def main(
     All settings are read from a TOML config file. Use ``-c`` to provide
     a path; otherwise the default locations are checked.
     """
-    cfg_path = resolve_worker_config_path(config)
+    cfg_path = WorkerConfig.resolve_worker_config_path(config)
     if cfg_path is None:
         logger.critical(
             "No config file found. "
@@ -501,7 +510,7 @@ def main(
         )
         raise Exit(1)
 
-    cfg = load_worker_config(cfg_path)
+    cfg = WorkerConfig.load_worker_config(cfg_path)
     configure_logging(cfg.log_level)
 
     asyncio.run(_run(config=cfg))

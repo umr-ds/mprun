@@ -38,7 +38,7 @@ class WorkerConfig(BaseModel):
         home_directory (Path): Path to the Worker's home directory. Used to store metadata, registration data, archives, etc.
         log_level (int): Set's Worker's logging level.
 
-        backend (WorkerBackend): Select backend for Worker. See ``mprun.custom_types.WorkerBackend``.
+        backends (set[WorkerBackend]): Which backends this worker supports. See ``mprun.custom_types.WorkerBackend``.
         docker_backend (DockerBackendConfig): cConfiguration for the docker execution backend.
     """
 
@@ -47,7 +47,7 @@ class WorkerConfig(BaseModel):
     home_directory: Path = DEFAULT_DATA_DIRS.user / "worker"
     log_level: int = logging.INFO
 
-    backend: WorkerBackend = WorkerBackend.NATIVE
+    backends: set[WorkerBackend]
     docker_backend: DockerBackendConfig = DockerBackendConfig()
 
     @field_validator("server_address", mode="before")
@@ -84,44 +84,48 @@ class WorkerConfig(BaseModel):
     @property
     def registration_data(self) -> WorkerRegistration:
         """Extracts the relevant data that needs to be sent to the server for registration."""
-        return WorkerRegistration(name=self.name, backend=self.backend)
+        return WorkerRegistration(name=self.name, backends=self.backends)
 
+    @classmethod
+    def load_worker_config(cls, path: Path) -> WorkerConfig:
+        """Load a ``WorkerConfig`` from a TOML file.
 
-def resolve_worker_config_path(explicit: Path | None) -> Path | None:
-    """Find the worker config file on disk.
+        Args:
+            path: Path to the TOML config file.
 
-    Args:
-        explicit: An explicitly provided path. Takes absolute precedence.
+        Returns:
+            The parsed ``WorkerConfig``.
 
-    Returns:
-        The path to the first existing config file, or ``None`` if no config file
-        was found.
-    """
-    if explicit is not None:
-        return explicit if explicit.is_file() else None
+        Raises:
+            OSError: If the file cannot be read.
+            pydantic.ValidationError: If the file contents are not a valid ``WorkerConfig``.
+            tomlkit.exceptions.TOMLKitError: If the file is not valid TOML.
+        """
+        with path.open("rb") as f:
+            data = tomlkit.load(f).unwrap()
 
-    if DEFAULT_WORKER_CONFIG_PATHS.user.is_file():
-        return DEFAULT_WORKER_CONFIG_PATHS.user
+            if "backends" in data:
+                data["backends"] = {WorkerBackend(b) for b in data["backends"]}
+            return WorkerConfig.model_validate(data, strict=True)
 
-    if DEFAULT_WORKER_CONFIG_PATHS.site.is_file():
-        return DEFAULT_WORKER_CONFIG_PATHS.site
+    @staticmethod
+    def resolve_worker_config_path(explicit: Path | None) -> Path | None:
+        """Find the worker config file on disk.
 
-    return None
+        Args:
+            explicit: An explicitly provided path. Takes absolute precedence.
 
+        Returns:
+            The path to the first existing config file, or ``None`` if no config file
+            was found.
+        """
+        if explicit is not None:
+            return explicit if explicit.is_file() else None
 
-def load_worker_config(path: Path) -> WorkerConfig:
-    """Load a ``WorkerConfig`` from a TOML file.
+        if DEFAULT_WORKER_CONFIG_PATHS.user.is_file():
+            return DEFAULT_WORKER_CONFIG_PATHS.user
 
-    Args:
-        path: Path to the TOML config file.
+        if DEFAULT_WORKER_CONFIG_PATHS.site.is_file():
+            return DEFAULT_WORKER_CONFIG_PATHS.site
 
-    Returns:
-        The parsed ``WorkerConfig``.
-
-    Raises:
-        OSError: If the file cannot be read.
-        pydantic.ValidationError: If the file contents are not a valid ``WorkerConfig``.
-        tomlkit.exceptions.TOMLKitError: If the file is not valid TOML.
-    """
-    with path.open("rb") as f:
-        return WorkerConfig.model_validate(tomlkit.load(f).unwrap())
+        return None

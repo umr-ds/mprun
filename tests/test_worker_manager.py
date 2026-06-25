@@ -30,7 +30,7 @@ async def test_worker_register(name: str) -> None:
         assert not manager._workers
 
         worker_registration = WorkerRegistration(
-            name=name, backend=WorkerBackend.NATIVE
+            name=name, backends={WorkerBackend.NATIVE}
         )
         worker = await manager.register(registration_data=worker_registration)
         assert isinstance(worker, WorkerData)
@@ -51,7 +51,7 @@ async def test_worker_checkin(name: str) -> None:
         )
 
         worker_registration = WorkerRegistration(
-            name=name, backend=WorkerBackend.NATIVE
+            name=name, backends={WorkerBackend.NATIVE}
         )
         worker = await manager.register(registration_data=worker_registration)
 
@@ -77,7 +77,7 @@ async def test_evict_dead_worker_from_memory(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
@@ -104,7 +104,7 @@ async def test_evicted_worker_persisted_as_dead(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
             wid = worker.wid
@@ -134,7 +134,7 @@ async def test_evicted_worker_raises_on_get(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
             wid = worker.wid
@@ -161,7 +161,7 @@ async def test_live_worker_not_evicted(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
 
@@ -186,7 +186,7 @@ async def test_checkin_prevents_eviction(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
@@ -216,11 +216,11 @@ async def test_only_stale_workers_evicted(name: str) -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name=f"{name}-live", backend=WorkerBackend.NATIVE
+                name=f"{name}-live", backends={WorkerBackend.NATIVE}
             )
             live = await manager.register(registration_data=worker_registration)
             worker_registration = WorkerRegistration(
-                name=f"{name}-dead", backend=WorkerBackend.NATIVE
+                name=f"{name}-dead", backends={WorkerBackend.NATIVE}
             )
             dead = await manager.register(registration_data=worker_registration)
             dead.last_check_in = stale
@@ -241,7 +241,7 @@ async def test_revive_returns_worker() -> None:
         )
 
         worker_registration = WorkerRegistration(
-            name="testworker", backend=WorkerBackend.NATIVE
+            name="testworker", backends={WorkerBackend.NATIVE}
         )
         worker = await manager.register(registration_data=worker_registration)
 
@@ -281,7 +281,7 @@ async def test_revive_alive_worker() -> None:
         )
 
         worker_registration = WorkerRegistration(
-            name="testworker", backend=WorkerBackend.NATIVE
+            name="testworker", backends={WorkerBackend.NATIVE}
         )
         worker = await manager.register(registration_data=worker_registration)
 
@@ -304,7 +304,7 @@ async def test_purge_removes_dead_workers() -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name="doomed", backend=WorkerBackend.NATIVE
+                name="doomed", backends={WorkerBackend.NATIVE}
             )
             worker = await manager.register(registration_data=worker_registration)
             worker.last_check_in = stale
@@ -333,11 +333,11 @@ async def test_purge_does_not_affect_alive_workers() -> None:
         with patch("mprun.worker_manager.time") as mock_time:
             mock_time.return_value = now
             worker_registration = WorkerRegistration(
-                name="alive", backend=WorkerBackend.NATIVE
+                name="alive", backends={WorkerBackend.NATIVE}
             )
             alive = await manager.register(registration_data=worker_registration)
             worker_registration = WorkerRegistration(
-                name="dead", backend=WorkerBackend.NATIVE
+                name="dead", backends={WorkerBackend.NATIVE}
             )
             dead = await manager.register(registration_data=worker_registration)
             dead.last_check_in = stale
@@ -360,7 +360,7 @@ async def test_purge_empty_noop() -> None:
         )
 
         worker_registration = WorkerRegistration(
-            name="only_worker", backend=WorkerBackend.NATIVE
+            name="only_worker", backends={WorkerBackend.NATIVE}
         )
         worker = await manager.register(registration_data=worker_registration)
 

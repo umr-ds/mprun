@@ -83,7 +83,7 @@ def _dispatch_and_submit(
     http_client: TestClient, results_payload: bytes = b"ok"
 ) -> Run:
     """Register a worker, dispatch a run, submit dummy results, return the run."""
-    registration_data = WorkerRegistration(name="w", backend=WorkerBackend.NATIVE)
+    registration_data = WorkerRegistration(name="w", backends={WorkerBackend.NATIVE})
     response = http_client.post(
         "/workers", data={"registration": registration_data.model_dump_json()}
     )
@@ -251,7 +251,7 @@ def test_purge_workers(
     """``purge`` removes dead workers and prints confirmation."""
     with _patched_client(tmp_path) as http_client:
         registration_data = WorkerRegistration(
-            name="doomed", backend=WorkerBackend.NATIVE
+            name="doomed", backends={WorkerBackend.NATIVE}
         )
         response = http_client.post(
             "/workers", data={"registration": registration_data.model_dump_json()}
@@ -304,7 +304,7 @@ def test_workers_with_workers(tmp_path: Path) -> None:
     with _patched_client(tmp_path) as http_client:
         for name in ("alpha", "beta"):
             registration_data = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             response = http_client.post(
                 "/workers",
@@ -321,7 +321,7 @@ def test_workers_json(tmp_path: Path) -> None:
     """``workers --json`` emits a parseable JSON array of workers."""
     with _patched_client(tmp_path) as http_client:
         registration_data = WorkerRegistration(
-            name="gamma", backend=WorkerBackend.NATIVE
+            name="gamma", backends={WorkerBackend.NATIVE}
         )
         response = http_client.post(
             "/workers",

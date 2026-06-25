@@ -90,7 +90,7 @@ async def test_purge_dead_workers(tmp_path: Path) -> None:
     """purge_dead_workers() removes dead workers from the server."""
     async with _patched_async_client(tmp_path) as (tc, async_client):
         registration_data = WorkerRegistration(
-            name="doomed", backend=WorkerBackend.NATIVE
+            name="doomed", backends={WorkerBackend.NATIVE}
         )
         response = tc.post(
             "/workers", data={"registration": registration_data.model_dump_json()}

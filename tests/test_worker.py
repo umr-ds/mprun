@@ -38,6 +38,7 @@ def generate_test_worker_config(
         name=name,
         server_address=f"http://localhost:{TEST_SERVER_PORT}",
         home_directory=home_directory,
+        backends={WorkerBackend.NATIVE},
     )
 
 
@@ -55,7 +56,7 @@ async def test_register(name: str) -> None:
             ) as client,
         ):
             registration_data = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             worker = await Worker.register(
                 client=client, registration_data=registration_data
@@ -79,7 +80,7 @@ async def test_checkin(name: str) -> None:
         ):
             home_dir = Path(data_dir) / "worker"
             registration_data = WorkerRegistration(
-                name=name, backend=WorkerBackend.NATIVE
+                name=name, backends={WorkerBackend.NATIVE}
             )
             metadata = await Worker.register(
                 client=client, registration_data=registration_data
@@ -108,7 +109,7 @@ async def test_get_run(
     ):
         home_dir = tmp_path / "worker"
         registration_data = WorkerRegistration(
-            name=TEST_WORKER_NAME, backend=WorkerBackend.NATIVE
+            name=TEST_WORKER_NAME, backends={WorkerBackend.NATIVE}
         )
         metadata = await Worker.register(
             client=client, registration_data=registration_data
@@ -161,7 +162,7 @@ async def test_results_upload(
     ):
         home_dir = tmp_path / "worker"
         registration_data = WorkerRegistration(
-            name=TEST_WORKER_NAME, backend=WorkerBackend.NATIVE
+            name=TEST_WORKER_NAME, backends={WorkerBackend.NATIVE}
         )
         metadata = await Worker.register(
             client=client, registration_data=registration_data
@@ -226,7 +227,7 @@ async def test_report_error(
     ):
         home_dir = tmp_path / "worker"
         registration_data = WorkerRegistration(
-            name=TEST_WORKER_NAME, backend=WorkerBackend.NATIVE
+            name=TEST_WORKER_NAME, backends={WorkerBackend.NATIVE}
         )
         metadata = await Worker.register(
             client=client, registration_data=registration_data
@@ -285,7 +286,7 @@ async def test_get_work_returns_none_when_idle(tmp_path: Path) -> None:
         metadata = await Worker.register(
             client=client,
             registration_data=WorkerRegistration(
-                name=TEST_WORKER_NAME, backend=WorkerBackend.NATIVE
+                name=TEST_WORKER_NAME, backends={WorkerBackend.NATIVE}
             ),
         )
         worker = Worker(

@@ -810,11 +810,17 @@ class WorkerRegistration(BaseModel):
 
     Attributes:
         name (str): Human-readable name. Not required to be unique, but uniqueness is encouraged.
-        backend (WorkerBackend): Worker's execution backend.
+        backends (set[WorkerBackend]): What backends this worker supports.
     """
 
     name: str
-    backend: WorkerBackend
+    backends: set[WorkerBackend]
+
+    @field_serializer("backends")
+    @classmethod
+    def serialise_backends(cls, value: set[WorkerBackend]) -> list[str]:
+        """Serialise the backends set as a sorted list of strings."""
+        return sorted(b.value for b in value)
 
 
 class WorkerData(BaseModel):

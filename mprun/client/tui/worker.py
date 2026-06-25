@@ -136,7 +136,7 @@ class WorkerView(Screen[None]):
         panel.update(
             f"[bold]{w.registration_data.name}[/bold]\n\n"
             f"[dim]WID:[/dim]         {w.wid}\n"
-            f"[dim]Backend:[/dim]     {w.registration_data.backend}\n"
+            f"[dim]Backend:[/dim]     {', '.join(w.registration_data.backends)}\n"
             f"[dim]State:[/dim]       [{state_colour}]{w.state}[/{state_colour}]\n"
             f"[dim]Joined:[/dim]      {_fmt_ts(w.joined)}\n"
             f"[dim]Last check-in:[/dim] {_fmt_ts(w.last_check_in)}\n"

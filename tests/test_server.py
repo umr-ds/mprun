@@ -51,7 +51,7 @@ def _post_experiment(
 
 def _register_worker(client: TestClient, name: str = "testworker") -> WorkerData:
     """Register a worker and return its data."""
-    registration_data = WorkerRegistration(name=name, backend=WorkerBackend.NATIVE)
+    registration_data = WorkerRegistration(name=name, backends={WorkerBackend.NATIVE})
     response = client.post(
         "/workers", data={"registration": registration_data.model_dump_json()}
     )
@@ -81,7 +81,7 @@ class TestWorkers:
 
             with TestClient(server) as client:
                 registration_data = WorkerRegistration(
-                    name=name, backend=WorkerBackend.NATIVE
+                    name=name, backends={WorkerBackend.NATIVE}
                 )
                 response = client.post(
                     "/workers",
@@ -104,7 +104,7 @@ class TestWorkers:
             with TestClient(server) as client:
                 for name in names:
                     registration_data = WorkerRegistration(
-                        name=name, backend=WorkerBackend.NATIVE
+                        name=name, backends={WorkerBackend.NATIVE}
                     )
                     response = client.post(
                         "/workers",
@@ -130,7 +130,7 @@ class TestWorkers:
 
             with TestClient(server) as client:
                 registration_data = WorkerRegistration(
-                    name=name, backend=WorkerBackend.NATIVE
+                    name=name, backends={WorkerBackend.NATIVE}
                 )
                 response = client.post(
                     "/workers",

@@ -160,7 +160,7 @@ def _print_workers(workers: list[WorkerData]) -> None:
         table.add_row(
             w.registration_data.name,
             str(w.wid),
-            w.registration_data.backend,
+            ", ".join(w.registration_data.backends),
             w.state,
             _fmt_ts(w.joined),
             _fmt_ts(w.last_check_in),
