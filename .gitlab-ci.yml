@@ -59,6 +59,11 @@ language-version:
 pytest:
   stage: tests
   image: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
   script:
     - uv sync --all-groups --frozen
     - uv run pytest

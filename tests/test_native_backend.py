@@ -15,7 +15,7 @@ from mprun.models import (
 )
 from mprun.worker.backends import NativeBackend
 from mprun.worker.worker import RESULTS_ARCHIVE_NAME
-from tests.conftest import copy_experiment_to_test_environment
+from tests.conftest import copy_native_experiment_to_test_environment
 
 
 def _make_backend(
@@ -38,7 +38,7 @@ def _make_backend(
 async def test_execute_run(tmp_path: Path) -> None:
     """Smoke test: native backend executes the bundled real experiment scripts."""
     experiment_definition, experiment_definition_path = (
-        copy_experiment_to_test_environment(directory=tmp_path)
+        copy_native_experiment_to_test_environment(directory=tmp_path)
     )
     experiment_archive_path = experiment_definition.create_archive(
         experiment_toml=experiment_definition_path
@@ -62,7 +62,7 @@ async def test_execute_run(tmp_path: Path) -> None:
 async def test_collect_results(tmp_path: Path) -> None:
     """Smoke test: result archive contains every file the bundled scripts produce."""
     experiment_definition, experiment_definition_path = (
-        copy_experiment_to_test_environment(directory=tmp_path)
+        copy_native_experiment_to_test_environment(directory=tmp_path)
     )
     experiment_archive_path = experiment_definition.create_archive(
         experiment_toml=experiment_definition_path

@@ -1,0 +1,22 @@
+name = "test experiment"
+executable = "main_script.py"
+backends = ["DOCKER"]
+
+[results]
+"/tmp/envfile" = "envfile"
+"/tmp/test_file.txt" = "test_file.txt"
+"/tmp/test_dir" = "test_dir"
+"working_file.txt" = "working_file.txt"
+"working_dir" = "working_dir"
+
+[params]
+foo = [1, 2, 3]
+bar = ["one", "two", "three"]
+buzz = [true, false]
+
+[environment_variables]
+"FOO" = "bar"
+"TEST_VARIABLE" = "test_value"
+
+[environment_files]
+"envfile.txt" = "/tmp/envfile"

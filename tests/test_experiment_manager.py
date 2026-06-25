@@ -695,3 +695,106 @@ async def test_dead_worker_callback_persists_reset(
         assert retrieved.wid is None
     finally:
         revived.close()
+
+
+DOCKERFILE_STUB = """\
+FROM python:3.12-slim
+WORKDIR /workspace
+"""
+
+
+@pytest.mark.asyncio
+async def test_dispatch_matches_docker_backend(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Worker with DOCKER backend receives a run from a DOCKER experiment."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+
+    assert (
+        await manager.dispatch_waiting_run(
+            worker=_make_worker(backends={WorkerBackend.DOCKER})
+        )
+        is None
+    )
+
+    definition, directory = make_experiment(backends={WorkerBackend.DOCKER})
+    (directory / "Dockerfile").write_text(DOCKERFILE_STUB)
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run(
+        worker=_make_worker(backends={WorkerBackend.DOCKER})
+    )
+    assert isinstance(dispatched, PendingDispatch)
+    assert dispatched.experiment.eid == experiment.eid
+
+    async with dispatched:
+        dispatched.finalise(wid=0)
+
+    retrieved = await manager.get_experiment(eid=experiment.eid)
+    assert retrieved.active_state == ActiveState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_dispatch_no_match_returns_none_native_vs_docker(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Worker with NATIVE backend gets None when only DOCKER experiments exist."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+
+    definition, directory = make_experiment(backends={WorkerBackend.DOCKER})
+    (directory / "Dockerfile").write_text(DOCKERFILE_STUB)
+    await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run(
+        worker=_make_worker(backends={WorkerBackend.NATIVE})
+    )
+    assert dispatched is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_no_match_returns_none_docker_vs_native(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Worker with DOCKER backend gets None when only NATIVE experiments exist."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+
+    definition, directory = make_experiment(backends={WorkerBackend.NATIVE})
+    await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run(
+        worker=_make_worker(backends={WorkerBackend.DOCKER})
+    )
+    assert dispatched is None
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_callback_resets_docker_run(
+    tmp_path: Path,
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """dead_worker_callback resets a RUNNING DOCKER run back to WAITING."""
+    manager = ExperimentManager(data_path=tmp_path / "data")
+    definition, directory = make_experiment(
+        params={"x": [1]}, backends={WorkerBackend.DOCKER}
+    )
+    (directory / "Dockerfile").write_text(DOCKERFILE_STUB)
+    experiment = await _create_experiment(manager, definition, directory)
+
+    dispatched = await manager.dispatch_waiting_run(
+        worker=_make_worker(backends={WorkerBackend.DOCKER})
+    )
+    assert dispatched is not None
+    async with dispatched:
+        dispatched.finalise(wid=7)
+
+    assert experiment.active_state == ActiveState.RUNNING
+
+    await manager.dead_worker_callback(wid=7)
+
+    run = manager._runs[experiment.runs[0][0].run_id]
+    assert run.active_state == ActiveState.WAITING
+    assert run.wid is None
+    assert experiment.active_state == ActiveState.WAITING

@@ -49,9 +49,15 @@ def _post_experiment(
     return Experiment.model_validate(response.json())
 
 
-def _register_worker(client: TestClient, name: str = "testworker") -> WorkerData:
+def _register_worker(
+    client: TestClient,
+    name: str = "testworker",
+    backends: set[WorkerBackend] | None = None,
+) -> WorkerData:
     """Register a worker and return its data."""
-    registration_data = WorkerRegistration(name=name, backends={WorkerBackend.NATIVE})
+    registration_data = WorkerRegistration(
+        name=name, backends=backends or {WorkerBackend.NATIVE}
+    )
     response = client.post(
         "/workers", data={"registration": registration_data.model_dump_json()}
     )
@@ -880,3 +886,51 @@ class TestRuns:
             with TestClient(server) as client:
                 response = client.post("/runs/99999/0/0/reset")
                 assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+class TestDockerWorker:
+    """Tests for worker-related endpoints with Docker backend."""
+
+    @given(name=st.text())
+    def test_worker_register_docker_backend(self, name: str) -> None:
+        """Worker registration succeeds with Docker backend."""
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            configure_server_for_test(Path(data_dir))
+            mp.setenv(SERVER_ADDRESS_ENV, str(TEST_SERVER_PORT))
+
+            with TestClient(server) as client:
+                registration_data = WorkerRegistration(
+                    name=name, backends={WorkerBackend.DOCKER}
+                )
+                response = client.post(
+                    "/workers",
+                    data={"registration": registration_data.model_dump_json()},
+                )
+                assert response.status_code == HTTPStatus.CREATED
+                worker = WorkerData.model_validate(response.json())
+                assert worker.registration_data.name == name
+                assert WorkerBackend.DOCKER in worker.registration_data.backends
+
+    def test_worker_register_and_list_docker(self) -> None:
+        """Worker with Docker backend is visible in the list."""
+        with (
+            TemporaryDirectory(delete=True) as data_dir,
+            pytest.MonkeyPatch.context() as mp,
+        ):
+            configure_server_for_test(Path(data_dir))
+            mp.setenv(SERVER_ADDRESS_ENV, str(TEST_SERVER_PORT))
+
+            with TestClient(server) as client:
+                _register_worker(
+                    client, name="docker_w", backends={WorkerBackend.DOCKER}
+                )
+
+                response = client.get("/workers")
+                assert response.status_code == HTTPStatus.OK
+                workers = [WorkerData.model_validate(j) for j in response.json()]
+                assert len(workers) == 1
+                assert workers[0].registration_data.name == "docker_w"
+                assert WorkerBackend.DOCKER in workers[0].registration_data.backends

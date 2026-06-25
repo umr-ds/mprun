@@ -17,6 +17,7 @@ from mprun.models import (
 )
 from mprun.server.config import ServerConfig
 from mprun.server.server import server
+from mprun.worker.config import DockerBackendConfig
 
 
 def configure_server_for_test(home_directory: Path) -> None:
@@ -33,10 +34,12 @@ def configure_server_for_test(home_directory: Path) -> None:
 
 
 TEST_ROOT = Path(__file__).resolve().parent
-TEST_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_experiment"
-TEST_EXPERIMENT_FILE = TEST_EXPERIMENT_DIRECTORY / EXPERIMENT_DEFINITION_NAME
+TEST_NATIVE_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_native_experiment"
+TEST_NATIVE_EXPERIMENT_FILE = (
+    TEST_NATIVE_EXPERIMENT_DIRECTORY / EXPERIMENT_DEFINITION_NAME
+)
 
-TEST_EXPERIMENT = ExperimentDefinition(
+TEST_NATIVE_EXPERIMENT = ExperimentDefinition(
     name="test experiment",
     params={
         "foo": [1, 2, 3],
@@ -61,10 +64,39 @@ TEST_EXPERIMENT = ExperimentDefinition(
 )
 
 
+TEST_DOCKER_EXPERIMENT_DIRECTORY = TEST_ROOT / "artefacts" / "test_docker_experiment"
+TEST_DOCKER_EXPERIMENT_FILE = (
+    TEST_DOCKER_EXPERIMENT_DIRECTORY / EXPERIMENT_DEFINITION_NAME
+)
+
+TEST_DOCKER_EXPERIMENT = ExperimentDefinition(
+    name="test experiment",
+    params={
+        "foo": [1, 2, 3],
+        "bar": ["one", "two", "three"],
+        "buzz": [True, False],
+    },
+    backends={WorkerBackend.DOCKER},
+    executable="main_script.py",
+    results={
+        "/tmp/envfile": "envfile",
+        "/tmp/test_file.txt": "test_file.txt",
+        "/tmp/test_dir": "test_dir",
+        "working_file.txt": "working_file.txt",
+        "working_dir": "working_dir",
+    },
+    environment_variables={
+        "FOO": "bar",
+        "TEST_VARIABLE": "test_value",
+    },
+    environment_files={"envfile.txt": "/tmp/envfile"},
+)
+
+
 TEST_SERVER_PORT = 8086
 
 
-def copy_experiment_to_test_environment(
+def copy_native_experiment_to_test_environment(
     directory: Path,
 ) -> tuple[ExperimentDefinition, Path]:
     """Copy the bundled real artefact into ``directory`` and load the definition.
@@ -74,7 +106,26 @@ def copy_experiment_to_test_environment(
     the ``make_experiment`` fixture instead.
     """
     copytree(
-        TEST_EXPERIMENT_DIRECTORY,
+        TEST_NATIVE_EXPERIMENT_DIRECTORY,
+        directory,
+        symlinks=False,
+        dirs_exist_ok=True,
+        copy_function=copy2,
+    )
+    experiment_definition_path = directory / EXPERIMENT_DEFINITION_NAME
+    experiment_definition = ExperimentDefinition.load_toml(
+        experiment_definition_path,
+        validation_mode=ValidationMode.DATA_AND_FILES,
+    )
+    return experiment_definition, experiment_definition_path
+
+
+def copy_docker_experiment_to_test_environment(
+    directory: Path,
+) -> tuple[ExperimentDefinition, Path]:
+    """Copy the bundled docker artefact into ``directory`` and load the definition."""
+    copytree(
+        TEST_DOCKER_EXPERIMENT_DIRECTORY,
         directory,
         symlinks=False,
         dirs_exist_ok=True,
@@ -109,6 +160,7 @@ class ExperimentKwargs(TypedDict, total=False):
     environment_variables: dict[str, str] | None
     environment_files: dict[str, str] | None
     timeout: int | None
+    backends: set[WorkerBackend]
 
 
 def build_experiment(  # noqa: PLR0913
@@ -124,6 +176,7 @@ def build_experiment(  # noqa: PLR0913
     environment_variables: dict[str, str] | None = None,
     environment_files: dict[str, str] | None = None,
     timeout: int | None = None,
+    backends: set[WorkerBackend] | None = None,
 ) -> tuple[ExperimentDefinition, Path]:
     """Materialise a minimal Experiment inside ``directory``.
 
@@ -151,10 +204,13 @@ def build_experiment(  # noqa: PLR0913
         for env_file in environment_files:
             (directory / env_file).write_text("env\n")
 
+    if backends is None:
+        backends = {WorkerBackend.NATIVE}
+
     definition = ExperimentDefinition(
         name=name,
         params=params if params is not None else {"x": [1, 2]},
-        backends={WorkerBackend.NATIVE},
+        backends=backends,
         executable=executable,
         setup_executable=setup_name,
         results=results if results is not None else {"out.txt": "out.txt"},
@@ -207,3 +263,30 @@ def make_archive_bytes() -> Callable[[dict[str, bytes]], BytesIO]:
         return buf
 
     return _make
+
+
+@pytest.fixture(scope="session")
+def docker_available() -> None:
+    """Skip docker-backed tests when the Docker daemon is unreachable."""
+    try:
+        from docker import DockerClient  # noqa: PLC0415
+    except ImportError:
+        pytest.skip("docker Python package not installed")
+
+    try:
+        client = DockerClient.from_env()
+        client.ping()
+        client.close()
+    except BaseException:  # noqa: BLE001
+        pytest.skip("Docker daemon not available")
+
+
+@pytest.fixture(scope="session")
+def docker_backend_config() -> DockerBackendConfig:
+    """Return DockerBackendConfig using environment-provided settings.
+
+    Respects DOCKER_HOST and related variables (CI DinD sets these).
+    """
+    from docker import DockerClient  # noqa: PLC0415
+
+    return DockerBackendConfig(base_url=DockerClient.from_env().api.base_url)

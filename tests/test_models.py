@@ -19,7 +19,12 @@ from mprun.models import (
     Run,
     ValidationMode,
 )
-from tests.conftest import TEST_EXPERIMENT, TEST_EXPERIMENT_FILE
+from tests.conftest import (
+    TEST_DOCKER_EXPERIMENT,
+    TEST_DOCKER_EXPERIMENT_FILE,
+    TEST_NATIVE_EXPERIMENT,
+    TEST_NATIVE_EXPERIMENT_FILE,
+)
 
 
 def test_experiment_creation() -> None:
@@ -36,16 +41,16 @@ def test_experiment_creation() -> None:
 
 
 def test_bundled_definition_matches_constant() -> None:
-    """The bundled experiment_definition.toml stays in sync with TEST_EXPERIMENT.
+    """The bundled experiment_definition.toml stays in sync with TEST_NATIVE_EXPERIMENT.
 
     Guards against drift between the real artefact under
-    ``tests/artefacts/test_experiment/`` and the in-memory constant the
+    ``tests/artefacts/test_native_experiment/`` and the in-memory constant the
     smoke test compares against.
     """
     loaded = ExperimentDefinition.load_toml(
-        TEST_EXPERIMENT_FILE, validation_mode=ValidationMode.DATA_AND_FILES
+        TEST_NATIVE_EXPERIMENT_FILE, validation_mode=ValidationMode.DATA_AND_FILES
     )
-    assert loaded == TEST_EXPERIMENT
+    assert loaded == TEST_NATIVE_EXPERIMENT
 
 
 def test_experiment_archive(
@@ -210,3 +215,87 @@ def test_run_reset() -> None:
     assert run.failure_reason is None
     assert run.started_running is None
     assert run.finished_running is None
+
+
+DOCKERFILE_STUB = """\
+FROM python:3.12-slim
+WORKDIR /workspace
+"""
+
+
+def test_docker_archive_contains_dockerfile(
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Archive built with DOCKER backend includes the Dockerfile."""
+    definition, directory = make_experiment(backends={WorkerBackend.DOCKER})
+    (directory / "Dockerfile").write_text(DOCKERFILE_STUB)
+
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+    assert archive_path.is_file()
+
+    with ZipFile(archive_path, "r") as zf:
+        assert "Dockerfile" in zf.namelist()
+        assert zf.read("Dockerfile") == DOCKERFILE_STUB.encode()
+
+    # Must pass validation with Dockerfile present
+    definition.validate_archive(archive_path=archive_path)
+
+
+def test_docker_archive_hash_mismatch_dockerfile(
+    make_experiment: Callable[..., tuple[ExperimentDefinition, Path]],
+) -> None:
+    """Tampered Dockerfile triggers ArchiveValidationError."""
+    definition, directory = make_experiment(backends={WorkerBackend.DOCKER})
+    (directory / "Dockerfile").write_text(DOCKERFILE_STUB)
+
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+    tampered = _tamper_archive_file(archive_path, "Dockerfile", b"tampered\n")
+
+    with pytest.raises(ArchiveValidationError) as exc_info:
+        definition.validate_archive(archive_path=tampered)
+    assert "hash mismatch" in exc_info.value.reason
+
+
+def test_docker_archive_missing_dockerfile(
+    tmp_path: Path,
+) -> None:
+    """Archive built without Dockerfile fails validation when DOCKER in backends."""
+    directory = tmp_path / "experiment"
+    directory.mkdir()
+
+    main_py = directory / "main.py"
+    main_py.write_text("#!/usr/bin/env python3\npass\n")
+    main_py.chmod(0o755)
+
+    definition = ExperimentDefinition(
+        name="exp",
+        params={"x": [1]},
+        backends={WorkerBackend.DOCKER},
+        executable="main.py",
+        results={},
+    )
+    definition.dump_toml(directory / EXPERIMENT_DEFINITION_NAME)
+
+    # create_archive skips missing files silently — the archive still passes
+    # creation. But validation should fail because Dockerfile is missing.
+    archive_path = definition.create_archive(
+        experiment_toml=directory / EXPERIMENT_DEFINITION_NAME
+    )
+
+    # Validation fails — no Dockerfile in archive but DOCKER in backends
+    with pytest.raises(ArchiveValidationError) as exc_info:
+        definition.validate_archive(archive_path=archive_path)
+    assert "Dockerfile" in exc_info.value.reason
+
+
+def test_bundled_docker_definition_matches_constant() -> None:
+    """The bundled docker experiment_definition.toml stays in sync with TEST_DOCKER_EXPERIMENT."""
+    loaded = ExperimentDefinition.load_toml(
+        TEST_DOCKER_EXPERIMENT_FILE,
+        validation_mode=ValidationMode.DATA_AND_FILES,
+    )
+    assert loaded == TEST_DOCKER_EXPERIMENT
