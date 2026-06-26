@@ -71,20 +71,32 @@ Config file locations (checked in order):
 
 **Config fields:**
 
-| Field              | Required | Description                                                                     |
-|:-------------------|---------:|:--------------------------------------------------------------------------------|
-| `server_address`   |      yes | Address of the server (e.g. `"localhost:8000"`)                                 |
-| `name`             |      yes | Human-readable name for this worker                                             |
-| `home_directory`   |       no | Working directory for run execution (defaults to  `$XDG_DATA_HOME/mprun/worker` |
-| `log_level`        |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"`             |
+| Field              | Required | Description                                                                                                           |
+|:-------------------|---------:|:----------------------------------------------------------------------------------------------------------------------|
+| `server_address`   |      yes | Address of the server (e.g. `"localhost:8000"`)                                                                       |
+| `name`             |      yes | Human-readable name for this worker                                                                                   |
+| `backends`         |      yes | Backends this worker supports. One or more of `"NATIVE"`, `"DOCKER"`. Runs are only dispatched to matching backends.  |
+| `home_directory`   |       no | Working directory for run execution (defaults to `$XDG_DATA_HOME/mprun/worker`)                                       |
+| `docker_backend`   |       no | Configuration for the Docker execution backend. Only needed when `"DOCKER"` is in `backends`.                         |
+| `log_level`        |       no | `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"`, `"CRITICAL"`                                                   |
 
-Example:
+**`docker_backend` fields:**
+
+| Field       | Required | Description                                                                         |
+|:------------|---------:|:------------------------------------------------------------------------------------|
+| `base_url`  |       no | URL or UNIX socket for the Docker daemon (default: `"unix:///var/run/docker.sock"`) |
+
+Example — a worker that supports both native and Docker execution:
 
 ```toml
 server_address = "localhost:8000"
 name = "gpu-node-1"
+backends = ["NATIVE", "DOCKER"]
 home_directory = "/var/lib/mprun/worker"
 log_level = "INFO"
+
+[docker_backend]
+base_url = "unix:///var/run/docker.sock"
 ```
 
 ### Client
@@ -197,11 +209,48 @@ Non-TOML files and directories are dimmed; only `.toml` files can be submitted.
 
 The detail panel shows each worker's name, WID, backend, state, join time, last check-in, and current run.
 
+## Experiment backends
+
+Backends control *where* and *how* experiment runs are executed. Each experiment declares which backends it supports via the `backends` field in its TOML definition. Workers declare which backends they offer in their config. The server only dispatches runs to workers whose backends overlap with the experiment's requirements.
+
+### NATIVE
+
+Runs the experiment directly on the worker's host system without sandboxing.
+The worker unpacks the experiment archive, sets up environment variables and files, then executes the main script natively.
+
+Use this when:
+- The worker host already has all required dependencies.
+- No isolation between runs is needed.
+- You want the simplest possible setup.
+
+### DOCKER
+
+Builds a Docker image from the experiment's `Dockerfile`, then runs the executable inside a container.
+The experiment directory is volume-mounted into the container at `/workspace`.
+
+The **`Dockerfile`** is responsible for:
+- Installing dependencies (Python packages, system libraries, etc.).
+- Copying environment files (from `[environment_files]`) to their configured destinations.
+
+The `Dockerfile` must be in the same directory as the experiment's TOML file.
+When the `DOCKER` backend is declared, the `Dockerfile` is automatically included in the experiment archive and validated on submission.
+
+Use this when:
+- Experiments need isolated environments.
+- Different experiments require conflicting dependency versions.
+- The worker host should not be modified by experiment code.
+
+### Dispatch logic
+
+When a worker polls for work, the server finds the first waiting run whose `backends` intersect with the worker's declared backends.
+If the worker supports both `NATIVE` and `DOCKER`, the Docker backend is preferred.
+
 ## Experiment creation
 
 Experiments are defined in TOML files and submitted via `mprun_client create <file.toml>` or the TUI's Create-Mode.
 
-The TOML file must live in the same directory as the `executable` (and `setup_executable`, if used). All paths in `environment_files` are resolved relative to that directory.
+The TOML file must live in the same directory as the `executable` (and `setup_executable`, if used).
+All paths in `environment_files` are resolved relative to that directory. If using the `DOCKER` backend, a `Dockerfile` must also be present in the same directory.
 
 ### Minimal example
 
@@ -218,7 +267,8 @@ batch_size    = [32, 64]
 "output/metrics.json" = "metrics.json"
 ```
 
-This produces 6 runs (3 × 2 Cartesian product). Each run receives its parameter combination as command-line arguments.
+This produces 6 runs (3 × 2 Cartesian product).
+Each run receives its parameter combination as command-line arguments.
 
 ### Full example
 
@@ -254,18 +304,25 @@ Total runs = `product(len(values) for each param) × iterations` = 2 × 2 × 1 �
 
 ### Field reference
 
-| Field                   | Required | Description                                                                                                                                           |
-|:------------------------|:--------:|:------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `name`                  |   yes    | Human-readable label. Need not be unique — each experiment gets its own UUID.                                                                         |
-| `executable`            |   yes    | Filename of the main script/binary. Must exist in the same directory as the TOML and be marked executable.                                            |
-| `params`                |   yes    | Dict of `param_name = [value, …]`. Values can be `str`, `int`, `float`, or `bool`. Runs = Cartesian product of all lists.                             |
-| `backends`              |   yes    | List of worker backends this experiment may run on. One or more of `"NATIVE"`, `"DOCKER"`.                                                             |
-| `results`               |   yes    | Dict of `"worker_path" = "archive_name"`. Paths/directories collected from the worker after each run and stored in the result archive.                |
-| `iterations`            |    no    | How many times each parameter combination is run. Default `1`. Use `>1` for non-deterministic experiments.                                            |
-| `timeout`               |    no    | Per-run timeout in seconds. Omit (or set to nothing) for unlimited.                                                                                   |
-| `setup_executable`      |    no    | Script run before each main run. Must be in the same directory as the TOML and be marked executable.                                                  |
-| `environment_variables` |    no    | Dict of `NAME = "value"` pairs set in the worker's environment before execution.                                                                      |
-| `environment_files`     |    no    | Dict of `"src" = "dst"`. Source paths are relative to the TOML directory; destinations are paths on the worker. Files and directories both supported. |
+| Field                   | Required | Description                                                                                                                                                            |
+|:------------------------|:--------:|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`                  |   yes    | Human-readable label. Need not be unique — each experiment gets its own UUID.                                                                                          |
+| `executable`            |   yes    | Filename of the main script/binary. Must exist in the same directory as the TOML and be marked executable.                                                             |
+| `params`                |   yes    | Dict of `param_name = [value, …]`. Values can be `str`, `int`, `float`, or `bool`. Runs = Cartesian product of all lists.                                              |
+| `backends`              |   yes    | List of worker backends this experiment may run on. One or more of `"NATIVE"`, `"DOCKER"`. When `DOCKER` is included, a `Dockerfile` must exist in the same directory. |
+| `results`               |   yes    | Dict of `"worker_path" = "archive_name"`. Paths/directories collected from the worker after each run and stored in the result archive.                                 |
+| `iterations`            |    no    | How many times each parameter combination is run. Default `1`. Use `>1` for non-deterministic experiments.                                                             |
+| `timeout`               |    no    | Per-run timeout in seconds. Omit (or set to nothing) for unlimited.                                                                                                    |
+| `setup_executable`      |    no    | Script run before each main run. Must be in the same directory as the TOML and be marked executable.                                                                   |
+| `environment_variables` |    no    | Dict of `NAME = "value"` pairs set in the worker's environment before execution.                                                                                       |
+| `environment_files`     |    no    | Dict of `"src" = "dst"`. Source paths are relative to the TOML directory; destinations are paths on the worker. Files and directories both supported.                  |
+
+### Examples
+
+Complete working examples are available in the `examples/` directory:
+
+- [`native_experiment`](examples/native_experiment/Readme.md) — runs on the host without sandboxing.
+- [`docker_experiment`](examples/docker_experiment/Readme.md) — runs inside a Docker container.
 
 ## Development
 

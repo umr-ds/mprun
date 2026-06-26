@@ -1,0 +1,10 @@
+name = "example native experiment"
+executable = "run.sh"
+backends = ["NATIVE"]
+
+[params]
+learning_rate = [0.001, 0.01, 0.1]
+batch_size = [32, 64]
+
+[results]
+"output.txt" = "output.txt"
