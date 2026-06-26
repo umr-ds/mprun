@@ -81,6 +81,16 @@ class WorkerConfig(BaseModel):
         msg = f"log_level must be str or int, got {type(v)}"
         raise ValueError(msg)
 
+    @field_validator("home_directory", mode="before")
+    @classmethod
+    def _validate_home_directory(cls, v: Any) -> Path:  # noqa: ANN401
+        if isinstance(v, Path):
+            return v
+        if isinstance(v, str):
+            return Path(v)
+        msg = f"home_directory must be Path or str, was: {type(v)}"
+        raise ValueError(msg)
+
     @property
     def registration_data(self) -> WorkerRegistration:
         """Extracts the relevant data that needs to be sent to the server for registration."""
