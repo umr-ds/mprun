@@ -14,9 +14,9 @@ jobs:
     container:
       image: ghcr.io/astral-sh/uv:0.11.26-python3.14-trixie-slim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: uv-${{ hashFiles('uv.lock') }}
@@ -28,9 +28,9 @@ jobs:
     container:
       image: ghcr.io/astral-sh/uv:0.11.26-python3.14-trixie-slim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: uv-${{ hashFiles('uv.lock') }}
@@ -42,9 +42,9 @@ jobs:
     container:
       image: ghcr.io/astral-sh/uv:0.11.26-python3.14-trixie-slim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: uv-${{ hashFiles('uv.lock') }}
@@ -56,9 +56,9 @@ jobs:
     container:
       image: ghcr.io/astral-sh/uv:0.11.26-python3.14-trixie-slim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: uv-${{ hashFiles('uv.lock') }}
@@ -77,9 +77,9 @@ jobs:
         image: docker:dind
         options: --privileged
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: uv-${{ hashFiles('uv.lock') }}
