@@ -96,6 +96,7 @@ exclude = [
     ".ruff_cache",
     ".svn",
     ".tox",
+    ".uv-cache",
     ".venv",
     ".vscode",
     "__pypackages__",
@@ -198,6 +199,9 @@ extend-immutable-calls = [
     "Option",
     "Argument"
 ]
+
+[tool.ty.src]
+include = ["mprun", "tests"]
 
 [tool.ty.rules]
 all = "error"
