@@ -332,12 +332,12 @@ After checking out the project, run
 
 ```bash
 uv sync --all-groups   # creates .venv — prefix commands with `uv run`, don't use .venv directly
-pre-commit install     # install hooks (runs ruff + ty + vermin before each commit)
+uv run prek install    # install hooks (runs ruff + ty + vermin before each commit)
 uv run pytest          # tests
 uv run ruff check      # lint
 uv run ruff format     # format
-uv run ty check        # type check (Astral `ty`)
-uv run vermin .        # verify Python >= 3.12
+uv run ty check        # type check
+uv run vermin .        # verify minimum Python version
 ```
 
 The CI-pipeline runs all the same checks, so check before committing.

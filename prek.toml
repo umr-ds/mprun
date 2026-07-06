@@ -1,0 +1,34 @@
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "https://github.com/astral-sh/uv-pre-commit"
+rev = "0.11.26"
+hooks = [
+  # Ensure that the lockfile is up to date
+  { id = "uv-lock" },
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.15.20"
+hooks = [
+  # Check code and apply automatic fixes where possible
+  { id = "ruff-check", args = ["--fix"] },
+  # Format code
+  { id = "ruff-format" },
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ty-pre-commit"
+rev = "v0.0.56"
+hooks = [
+  # Perform type checking
+  { id = "ty" },
+]
+
+[[repos]]
+repo = "https://github.com/netromdk/vermin"
+rev = "v1.8.0"
+hooks = [
+  { id = "vermin"}
+]
