@@ -280,17 +280,25 @@ class WorkerManager:
                 if now - worker.last_check_in > WORKER_TIMEOUT
             ]  # all live workers which have exceeded the timeout
 
-            for wid in dead_wids:
-                worker = self._workers[wid]
-                worker.state = WorkerState.DEAD
-                worker.run = None
-                await self._update(worker_data=worker)
-                del self._workers[wid]
-                logger.info(
-                    "Garbage-collected dead worker %d (%s)",
-                    wid,
-                    worker.registration_data.name,
-                )
+            removed_workers: list[int] = []
+            try:
+                for wid in dead_wids:
+                    worker = self._workers[wid]
+                    worker.state = WorkerState.DEAD
+                    worker.run = None
+                    await self._update(worker_data=worker)
+                    del self._workers[wid]
+                    logger.info(
+                        "Garbage-collected dead worker %d (%s)",
+                        wid,
+                        worker.registration_data.name,
+                    )
+                    removed_workers.append(wid)
+            except Exception:
+                logger.exception(msg="Error marking worker as DEAD")
 
-        for wid in dead_wids:
-            await self._dead_worker_callback(wid=wid)
+        for wid in removed_workers:
+            try:
+                await self._dead_worker_callback(wid=wid)
+            except Exception:
+                logger.exception(msg="Error from dead worker callback")
