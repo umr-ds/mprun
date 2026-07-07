@@ -54,8 +54,7 @@ class WorkerManager:
         self._db = TinyDB(data_path / "db.json")
         self._state_mutex = Lock()
 
-        docs = self._workers_table.all()
-        workers = [WorkerData.model_validate(doc) for doc in docs]
+        workers = self._load_living()
         self._workers = {worker.wid: worker for worker in workers}
 
         self._dead_worker_callback = dead_worker_callback
@@ -64,6 +63,12 @@ class WorkerManager:
     @property
     def _workers_table(self) -> Table:
         return self._db.table("workers")
+
+    def _load_living(self) -> list[WorkerData]:
+        """Load all living workers from disk."""
+        q = Query()
+        docs = self._workers_table.search(q.state != WorkerState.DEAD)
+        return [WorkerData.model_validate(doc) for doc in docs]
 
     def close(self) -> None:
         """Close the database connection and stop the garbage collector."""
