@@ -298,12 +298,7 @@ class Worker:
                 run.success_state = SuccessState.FAILED
                 return
 
-            try:
-                await self.upload_results(run=run)
-            except (HTTPStatusError, OSError):
-                logger.exception("Failed uploading results")
-            except Exception:
-                logger.exception("Unexpected error uploading results")
+            await self.upload_results(run=run)
 
     def _select_backend(self, run: Run, execution_dir: Path) -> Backend:
         """Select the most appropriate execution backend.
@@ -311,7 +306,7 @@ class Worker:
         Gives priority to the docker backend.
 
         Raises:
-            NoMatchingBackendError: If the worker's and experiment's set of backends backends do not overlap.
+            NoMatchingBackendError: If the worker's and experiment's set of backends do not overlap.
         """
         overlap = self.config.backends & run.definition.backends
 
@@ -434,14 +429,29 @@ class Worker:
             HTTPStatusError: If the server returns a non-2xx response.
         """
         logger.info("Uploading results for run %s", run.run_id)
-        with self.results_archive_path.open("rb") as f:
-            response = await self.http_client.post(
-                ENDPOINT_RUNS_RESULT,
-                params={"wid": self.meta_data.wid},
-                data={"run": run.model_dump_json()},
-                files={"results_archive": (RESULTS_ARCHIVE_NAME, f, "application/zip")},
-            )
-        response.raise_for_status()
+
+        upload_success = False
+        while not upload_success:
+            try:
+                with self.results_archive_path.open("rb") as f:
+                    response = await self.http_client.post(
+                        ENDPOINT_RUNS_RESULT,
+                        params={"wid": self.meta_data.wid},
+                        data={"run": run.model_dump_json()},
+                        files={
+                            "results_archive": (
+                                RESULTS_ARCHIVE_NAME,
+                                f,
+                                "application/zip",
+                            )
+                        },
+                    )
+                response.raise_for_status()
+                upload_success = True
+            except Exception:
+                logger.exception(msg="Error uploading Results. Sleeping before retry")
+                await sleep(delay=10)
+
         logger.debug("Results uploaded successfully")
 
     async def run(self) -> None:

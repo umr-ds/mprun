@@ -183,7 +183,8 @@ class DockerBackend:
             # case where collect_results is never called (e.g. in tests).
             await self._chown_workspace(container)
 
-    async def _chown_workspace(self, container: Container) -> None:
+    @staticmethod
+    async def _chown_workspace(container: Container) -> None:
         """Chown the workspace volume mount to the host user's UID/GID."""
         try:
             uid = os.getuid()
