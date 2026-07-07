@@ -252,7 +252,7 @@ class ExperimentManager:
                 experiment is None
                 or rid.index < 0
                 or rid.index >= len(experiment.runs)
-                or rid.iteration < 1
+                or rid.iteration < 0
                 or rid.iteration >= experiment.definition.iterations
             ):
                 raise NoSuchRunError(run_id=rid)
