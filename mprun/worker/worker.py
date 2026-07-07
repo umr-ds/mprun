@@ -480,8 +480,15 @@ class Worker:
         """
         logger.debug("Performing worker check in")
         response = await self.http_client.post(
-            ENDPOINT_WORKER_CHECK_IN.format(wid=self.meta_data.wid)
+            url=ENDPOINT_WORKER_CHECK_IN.format(wid=self.meta_data.wid)
         )
+
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            # we may have been marked as dead - if so we need to try to revive ourselves
+            response = await self.http_client.post(
+                url=ENDPOINT_WORKER_REVIVE.format(wid=self.meta_data.wid)
+            )
+
         response.raise_for_status()
         self.meta_data.last_check_in = time()
 
