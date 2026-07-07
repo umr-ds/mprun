@@ -62,11 +62,11 @@ def resolve_server_config_path(explicit: Path | None) -> Path | None:
     if explicit is not None:
         return explicit if explicit.is_file() else None
 
-    if DEFAULT_CONFIG_DIRS.user.is_file():
-        return DEFAULT_CONFIG_DIRS.user
+    if DEFAULT_SERVER_CONFIG_PATHS.user.is_file():
+        return DEFAULT_SERVER_CONFIG_PATHS.user
 
-    if DEFAULT_CONFIG_DIRS.site.is_file():
-        return DEFAULT_CONFIG_DIRS.site
+    if DEFAULT_SERVER_CONFIG_PATHS.site.is_file():
+        return DEFAULT_SERVER_CONFIG_PATHS.site
 
     return None
 
